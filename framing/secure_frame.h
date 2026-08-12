@@ -71,9 +71,9 @@ int secure_frame_encrypt_and_build(uint8_t slave_addr,
    여러 슬레이브가 물려 있을 때, 우리 주소가 아닌 프레임을 걸러내기 위함).
 
    out_addr에는 (성공/실패와 무관하게 파싱이 됐다면) frame.addr이 채워짐.
-   out_ciphertext_len/out_crc_calc/out_crc_recv는 선택 사항(NULL 허용) -- 호출자가 진단
-   메시지에 필요한 세부 값(파싱 직후의 암호문 길이, CRC 불일치 시 계산값/수신값)을 얻는 용도.
-   out_pdu는 최소 SECURE_FRAME_MAX_PDU 바이트여야 함.
+   out_ciphertext_len/out_crc_calc/out_crc_recv는 선택 사항(NULL 허용)으로, 호출자가 진단
+   메시지에 필요한 세부 정보(파싱 직후의 암호문 길이, CRC 불일치 시 계산값/수신값)를
+   얻을 수 있도록 두었다. out_pdu는 최소 SECURE_FRAME_MAX_PDU 바이트여야 함.
 
    SECURE_FRAME_OK를 반환하면 out_pdu/out_pdu_len이 유효함. 그 외에는 해당하는
    secure_frame_status_t 오류 코드를 반환. */
@@ -89,7 +89,8 @@ secure_frame_status_t secure_frame_verify_and_decrypt(const uint8_t *wire,
                                                         uint16_t *out_crc_recv);
 
 /* 표준 Modbus CRC16 (다항식 0xA001, 하위 바이트 먼저 전송). do_self_test()류의 호출자가
-   secure_frame_encrypt_and_build()를 거치지 않고 직접 테스트 ADU를 구성할 때 필요해서 공개. */
+   secure_frame_encrypt_and_build()를 거치지 않고 직접 테스트 ADU를 구성할 때 필요하므로
+   공개 함수로 노출. */
 uint16_t secure_frame_crc16(const uint8_t *buf, size_t len);
 
 #endif /* SECURITY_FRAMING_SECURE_FRAME_H */

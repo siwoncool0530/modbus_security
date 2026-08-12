@@ -14,8 +14,8 @@ void exe_relative_path(const char *argv0, const char *filename, char *out, size_
 /* keys.txt를 다음 순서로 탐색해 key_store_load_file()로 불러옴:
    cwd "keys.txt" -> (argv0이 NULL이 아니면) 실행 파일 옆의 "keys.txt" ->
    "keymgmt/keys.txt" -> "security/keymgmt/keys.txt" -> "../keymgmt/keys.txt".
-   argv0는 실행 파일 위치를 모르는 호출자(예: 인터랙티브 도구)는 NULL로 넘기면
-   해당 후보만 건너뜀. 불러온 키 항목 수(>0)를 반환하며, 전부 실패하면 <=0을 반환. */
+   실행 파일 위치를 모르는 호출자(예: 인터랙티브 도구)는 argv0에 NULL을 넘기면 되며,
+   그 경우 해당 후보만 건너뜀. 불러온 키 항목 수(>0)를 반환하며, 전부 실패하면 <=0을 반환. */
 int demo_load_keys(const char *argv0);
 
 #endif /* SECURITY_DEMO_KEY_PATHS_H */

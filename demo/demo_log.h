@@ -1,8 +1,8 @@
 /* secure_send_demo.c와 secure_recv_demo.c가 공유하는 파일 로깅 유틸리티 --
    상세 진단은 로그 파일에만, 프레임당 요약은 로그 파일과 콘솔 양쪽에 기록.
    main.c는 로그 파일이 없는 인터랙티브 도구이므로 이 헤더를 쓰지 않고
-   자체 콘솔 전용 print_hex()를 따로 둠 (같은 이름의 extern 선언과 충돌하므로
-   두 세계를 섞지 않음). */
+   자체 콘솔 전용 print_hex()를 따로 둠 -- 이 헤더를 같이 include하면 같은
+   이름의 extern 선언과 충돌하기 때문. */
 #ifndef SECURITY_DEMO_DEMO_LOG_H
 #define SECURITY_DEMO_DEMO_LOG_H
 

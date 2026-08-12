@@ -273,19 +273,19 @@ static void do_run_exchange(void)
     }
 }
 
-/* 암호화 로직 점검용 테스트: 하드웨어 없이 한 프로세스 안에서 실제 공개 API
+/* 암호화 로직 점검용 테스트: 하드웨어 없이 한 프로세스 안에서 공개 API
    (secure_frame_encrypt_and_build(), secure_frame_verify_and_decrypt())를 두 방향(m2s/s2m) 모두
-   실제로 호출해 검증한다. serial_port를 전혀 거치지 않으므로 통과해도 실제 RS-485 배선/포트
+   직접 호출해 검증한다. serial_port를 전혀 거치지 않으므로 통과해도 실제 RS-485 배선/포트
    (/dev/ttyAMA0, COM 포트 등) 상태는 확인하지 못함 -- 하드웨어/배선 확인은 옵션 4로 포트를
    설정한 뒤 옵션 5(실행)로 해야 한다.
 
-   두 체크가 서로 다른 테스트 주소(0xF0/0xF1)와 방향(m2s/s2m)을 쓰는 이유: ctr_state는
-   (addr, dir)별로 하나뿐인 프로세스 전역 카운터 테이블이라, 같은 (addr, dir)에 대해
-   secure_frame_encrypt_and_build()를 부른 직후 secure_frame_verify_and_decrypt()를 또
-   부르면 그 함수 내부의 ctr_state_next_outgoing()이 두 번째로 호출되어 이미 전진된 다음
-   카운터를 받아오게 되므로 복호화가 실패한다 (재현: 옵션 3을 실제 함수 두 개로 같은 주소에
-   대해 연달아 부르면 두 번째 호출이 CRC mismatch로 실패). 아래 두 체크는 서로 다른
-   (addr, dir) 슬롯을 쓰므로 이 문제를 피하면서도 실제 공개 함수를 그대로 검증한다. */
+   아래 두 체크가 서로 다른 테스트 주소(0xF0/0xF1)와 방향(m2s/s2m)을 쓰는 것은 ctr_state가
+   (addr, dir)별로 하나뿐인 프로세스 전역 카운터 테이블이기 때문이다. 같은 (addr, dir)에
+   대해 secure_frame_encrypt_and_build()를 부른 직후 secure_frame_verify_and_decrypt()를 또
+   부르면, 그 함수 내부의 ctr_state_next_outgoing()이 두 번째로 호출되어 이미 전진된 다음
+   카운터를 받아오게 되므로 복호화가 실패한다 (재현 방법: 옵션 3을 실제 함수 두 개로 같은
+   주소에 대해 연달아 부르면 두 번째 호출이 CRC mismatch로 실패한다). 서로 다른 (addr, dir)
+   슬롯을 쓰면 이 문제를 피하면서도 공개 함수를 그대로 검증할 수 있다. */
 static void do_self_test(void)
 {
     int ok = 1;

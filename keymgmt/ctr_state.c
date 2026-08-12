@@ -17,15 +17,6 @@ typedef struct {
 static ctr_entry_t table[CTR_STATE_MAX_ADDR + 1][CTR_STATE_NUM_DIRS];
 static char state_path[512] = CTR_STATE_DEFAULT_PATH;
 
-static int dir_index(key_direction_t dir, int *out)
-{
-    if (dir != DIR_MASTER_TO_SLAVE && dir != DIR_SLAVE_TO_MASTER && dir != DIR_BROADCAST) {
-        return -1;
-    }
-    *out = (int) dir;
-    return 0;
-}
-
 static const char *dir_name(key_direction_t dir)
 {
     switch (dir) {
@@ -44,6 +35,18 @@ void ctr_state_set_path(const char *path)
     state_path[sizeof(state_path) - 1] = '\0';
 }
 
+void ctr_state_reset(uint8_t slave_addr, key_direction_t dir)
+{
+    int di;
+
+    if (slave_addr > CTR_STATE_MAX_ADDR || key_direction_index(dir, &di) != 0) {
+        return;
+    }
+    table[slave_addr][di].valid_out = 0;
+    table[slave_addr][di].valid_in = 0;
+    ctr_state_persist();
+}
+
 uint32_t ctr_state_next_outgoing(uint8_t slave_addr, key_direction_t dir, size_t msg_len)
 {
     int di;
@@ -51,7 +54,7 @@ uint32_t ctr_state_next_outgoing(uint8_t slave_addr, key_direction_t dir, size_t
     uint32_t seed;
     uint32_t num_blocks;
 
-    if (slave_addr > CTR_STATE_MAX_ADDR || dir_index(dir, &di) != 0) {
+    if (slave_addr > CTR_STATE_MAX_ADDR || key_direction_index(dir, &di) != 0) {
         return 0;
     }
 
@@ -81,7 +84,7 @@ int ctr_state_validate_incoming(uint8_t slave_addr, key_direction_t dir, uint32_
     int di;
     uint32_t seed;
 
-    if (slave_addr > CTR_STATE_MAX_ADDR || dir_index(dir, &di) != 0) {
+    if (slave_addr > CTR_STATE_MAX_ADDR || key_direction_index(dir, &di) != 0) {
         return 0;
     }
 
@@ -183,7 +186,7 @@ int ctr_state_load(void)
         } else {
             continue;
         }
-        if (dir_index(dir, &di) != 0) {
+        if (key_direction_index(dir, &di) != 0) {
             continue;
         }
 

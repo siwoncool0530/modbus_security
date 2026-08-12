@@ -18,111 +18,14 @@
 #include "../framing/secure_frame.h"
 #include "../keymgmt/key_store.h"
 #include "../keymgmt/ctr_state.h"
-#include "../crypto/lea.h"
-#include "../crypto/lea_ctr.h"
-#include "../crypto/hmac_lsh.h"
 #include "serial_port.h"
+#include "demo_log.h"
+#include "key_paths.h"
 #include <stdio.h>
-#include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
 
 #define DEFAULT_BAUD 115200
-
-/* log_detail()은 g_log 파일에만 기록.
-    log_summary()는 g_log 파일과 console 양쪽에 기록되며, 프레임당 한 줄의 결과를 보여줌.
- */
-static FILE *g_log = NULL;
-
-static void log_open(const char *path)
-{
-    g_log = fopen(path, "w");
-    if (g_log == NULL) {
-        fprintf(stderr, "Warning: could not open log file %s -- continuing without one\n", path);
-    }
-}
-
-static void log_close_atexit(void)
-{
-    if (g_log != NULL) {
-        fclose(g_log);
-        g_log = NULL;
-    }
-}
-
-/* 전체 상세 정보(PDU/회선 프레임 16진수 덤프, 전송별 진단 정보) - g_log 파일에만 기록.
-    크기가 제각각인 여러 프레임을 한 번에 실행하면 터미널에서 실시간으로 읽기엔 양이 너무 많으므로,
-    특정 프레임을 나중에 살펴봐야 할 때를 위해 send_log.txt에 보관. */
-static void log_detail(const char *fmt, ...)
-{
-    va_list ap;
-
-    if (g_log != NULL) {
-        va_start(ap, fmt);
-        vfprintf(g_log, fmt, ap);
-        va_end(ap);
-        fflush(g_log); /* 중도 중단될 경우 대비 */
-    }
-}
-
-/* 프레임당 한 줄로 결과 및 성공/실패 요약 메시지 */
-static void log_summary(const char *fmt, ...)
-{
-    va_list ap;
-
-    va_start(ap, fmt);
-    vprintf(fmt, ap);
-    va_end(ap);
-
-    if (g_log != NULL) {
-        va_start(ap, fmt);
-        vfprintf(g_log, fmt, ap);
-        va_end(ap);
-        fflush(g_log);
-    }
-}
-
-static void print_hex(const char *label, const uint8_t *buf, size_t len)
-{
-    size_t i;
-    log_detail("%s (%u bytes): ", label, (unsigned int) len);
-    for (i = 0; i < len; i++) {
-        log_detail("%02X ", buf[i]);
-    }
-    log_detail("\n");
-}
-
-/* secure_recv_demo.c의 modbus_crc16()과 동일. 회신을 복호화한 뒤 CRC를
-   검증하는 데 사용 (요청 측과 동일한 표준 Modbus CRC16). */
-static uint16_t modbus_crc16(const uint8_t *buf, size_t len)
-{
-    uint16_t crc = 0xFFFF;
-    size_t i;
-    int bit;
-
-    for (i = 0; i < len; i++) {
-        crc ^= buf[i];
-        for (bit = 0; bit < 8; bit++) {
-            crc = (crc & 1) ? (uint16_t) ((crc >> 1) ^ 0xA001) : (uint16_t) (crc >> 1);
-        }
-    }
-    return crc;
-}
-
-/* secure_recv_demo.c의 modbus_t35_us()와 동일한 공식 -- 수신측이 실제로
-   프레임 경계로 요구하는 유휴 간격을 그대로 재사용해 프레임 간 대기시간을
-   산정하기 위함 (두 파일 사이에 값이 어긋나면 다시 같은 문제가 재발할 수
-   있으므로 반드시 동일하게 유지). 안전 여유로 2배를 곱해 실제 대기시간으로
-   씀 -- 프레임을 하나씩 순서대로 보내기만 하므로 여유를 더 둬도 손해가
-   없음. 20ms 바닥값의 근거는 실측: 9600/19200/38400/57600 baud에서
-   16ms=실패, 17ms=성공의 정확한 경계를 이분 탐색으로 확인함(원인은 커널/
-   드라이버 쪽 고정 지연으로 추정, baud와 무관). */
-#define MODBUS_T35_MIN_GAP_US 20000
-static long modbus_t35_us(long baud)
-{
-    long t35 = (baud > 19200) ? 1750 : (long) (3.5 * 11.0 * 1000000.0 / (double) baud);
-    return (t35 > MODBUS_T35_MIN_GAP_US) ? t35 : MODBUS_T35_MIN_GAP_US;
-}
 
 static int inter_frame_gap_ms(long baud)
 {
@@ -140,15 +43,11 @@ static int send_request_and_verify_reply(const char *port_name, long baud, uint8
     serial_port_t sp;
     uint8_t rx_buf[SECURE_FRAME_MAX_WIRE_LEN];
     long rx_len;
-    secure_frame_t reply;
-    directional_keys_t keys;
-    uint8_t mac_input[SECURE_FRAME_ADDR_LEN + SECURE_FRAME_MAX_ADU];
-    uint8_t expected_hmac[HMAC_LSH_FULL_SIZE];
-    lea_key_schedule_t ks;
-    uint8_t ctr_high[LEA_CTR_HIGH_SIZE];
-    uint32_t ctr_low;
-    uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];
+    uint8_t reply_addr;
+    uint8_t reply_pdu[SECURE_FRAME_MAX_PDU];
+    size_t reply_pdu_len;
     uint16_t crc_calc, crc_recv;
+    secure_frame_status_t status;
 
     if (serial_port_open(&sp, port_name, baud, (int) modbus_t35_us(baud)) != 0) {
         return -1;
@@ -172,60 +71,33 @@ static int send_request_and_verify_reply(const char *port_name, long baud, uint8
     }
     print_hex("Received reply raw frame", rx_buf, rx_len);
 
-    if (!secure_frame_parse(rx_buf, rx_len, &reply)) {
+    status = secure_frame_verify_and_decrypt(rx_buf, (size_t) rx_len, slave_addr, DIR_SLAVE_TO_MASTER,
+                                              &reply_addr, NULL, reply_pdu, &reply_pdu_len,
+                                              &crc_calc, &crc_recv);
+    switch (status) {
+    case SECURE_FRAME_OK:
+        break;
+    case SECURE_FRAME_ERR_MALFORMED:
         log_detail("reply: malformed frame (%u bytes, too short for addr+hmac)\n", (unsigned int) rx_len);
         return -1;
-    }
-    if (reply.addr != slave_addr) {
+    case SECURE_FRAME_ERR_WRONG_ADDR:
         log_detail("reply: addr mismatch (expected %u, got %u)\n",
-                   (unsigned int) slave_addr,
-                   (unsigned int) reply.addr);
+                   (unsigned int) slave_addr, (unsigned int) reply_addr);
         return -1;
-    }
-    if (key_store_lookup(slave_addr, DIR_SLAVE_TO_MASTER, &keys) != 0) {
+    case SECURE_FRAME_ERR_NO_KEY:
         log_detail("reply: no s2m key provisioned for slave %u\n", (unsigned int) slave_addr);
         return -1;
-    }
-
-    mac_input[0] = reply.addr;
-    memcpy(mac_input + SECURE_FRAME_ADDR_LEN, reply.ciphertext, reply.ciphertext_len);
-    hmac_lsh256(keys.mac_key,
-                KEY_SIZE,
-                mac_input,
-                SECURE_FRAME_ADDR_LEN + reply.ciphertext_len,
-                expected_hmac);
-    if (memcmp(expected_hmac, reply.hmac, SECURE_FRAME_HMAC_LEN) != 0) {
-        print_hex("Expected reply HMAC", expected_hmac, SECURE_FRAME_HMAC_LEN);
-        print_hex("Received reply HMAC", reply.hmac, SECURE_FRAME_HMAC_LEN);
+    case SECURE_FRAME_ERR_HMAC:
         log_detail("reply: HMAC MISMATCH\n");
         return -1;
-    }
-    log_detail("reply: HMAC OK\n");
-
-    memset(ctr_high, 0, sizeof(ctr_high));
-    ctr_low = ctr_state_next_outgoing(slave_addr, DIR_SLAVE_TO_MASTER, reply.ciphertext_len);
-    log_detail("Decrypting reply with ctr_high=%02X%02X%02X%02X, ctr_low=%08X\n",
-               ctr_high[0], ctr_high[1], ctr_high[2], ctr_high[3], ctr_low);
-
-    lea_key_schedule(keys.enc_key, &ks);
-    lea_ctr_crypt(&ks, ctr_high, ctr_low, 0, reply.ciphertext, plaintext_adu, reply.ciphertext_len);
-    print_hex("Decrypted reply ADU", plaintext_adu, reply.ciphertext_len);
-
-    if (reply.ciphertext_len < SECURE_FRAME_CRC_LEN) {
-        log_detail("reply: decrypted ADU too short to hold a CRC\n");
-        return -1;
-    }
-    crc_calc = modbus_crc16(plaintext_adu, reply.ciphertext_len - SECURE_FRAME_CRC_LEN);
-    crc_recv = (uint16_t) plaintext_adu[reply.ciphertext_len - 2] |
-               ((uint16_t) plaintext_adu[reply.ciphertext_len - 1] << 8);
-    if (crc_calc != crc_recv) {
+    case SECURE_FRAME_ERR_CRC:
+    default:
         log_detail("reply: CRC MISMATCH (calc %04X, recv %04X)\n", crc_calc, crc_recv);
         return -1;
     }
+    log_detail("reply: HMAC OK\n");
     log_detail("reply: CRC OK\n");
-
-    print_hex("Recovered reply PDU", plaintext_adu + SECURE_FRAME_ADDR_LEN,
-               reply.ciphertext_len - SECURE_FRAME_ADDR_LEN - SECURE_FRAME_CRC_LEN);
+    print_hex("Recovered reply PDU", reply_pdu, reply_pdu_len);
 
     return 0;
 }
@@ -240,55 +112,6 @@ static int send_to_file(const char *path, const uint8_t *frame, size_t len)
     fclose(f);
     log_detail("No port given -- wrote %u bytes to %s instead\n", (unsigned int) len, path);
     return 0;
-}
-
-/* "<argv0을 담고 있는 디렉터리>/filename" 형태의 문자열을 out에 만들어 넣음.
-   argv0에 디렉터리 구성요소가 없으면 그냥 filename으로 대체.
-   keys.txt, CTR 카운터 파일을 실행 파일 위치에 고정하는 데 사용.
-   잘못된 ctr_state 파일을 읽고 쓰면 송신자/수신자 카운터 어긋나므로 유의. (카운터 전송하지 않으므로) */
-static void exe_relative_path(const char *argv0, const char *filename, char *out, size_t out_size)
-{
-    const char *slash = strrchr(argv0, '/');
-#ifdef _WIN32
-    const char *backslash = strrchr(argv0, '\\');
-    if (backslash != NULL && (slash == NULL || backslash > slash)) {
-        slash = backslash;
-    }
-#endif
-
-    if (slash != NULL) {
-        size_t dir_len = (size_t) (slash - argv0) + 1;
-        if (dir_len + strlen(filename) < out_size) {
-            memcpy(out, argv0, dir_len);
-            strcpy(out + dir_len, filename);
-            return;
-        }
-    }
-    strncpy(out, filename, out_size - 1);
-    out[out_size - 1] = '\0';
-}
-
-// 파일로부터 키를 가져옴. binary가 존재하는 위치에 없을 경우 argv0 경로를, 마지막으로 개발 트리 경로를 시도.
-static int load_keys(const char *argv0)
-{
-    char exe_relative[512];
-    int loaded = key_store_load_file("keys.txt");
-    if (loaded > 0) {
-        return loaded;
-    }
-
-    exe_relative_path(argv0, "keys.txt", exe_relative, sizeof(exe_relative));
-    loaded = key_store_load_file(exe_relative);
-    if (loaded > 0) {
-        return loaded;
-    }
-
-    loaded = key_store_load_file("keymgmt/keys.txt");
-    if (loaded > 0) {
-        return loaded;
-    }
-
-    return key_store_load_file("security/keymgmt/keys.txt");
 }
 
 int main(int argc, char **argv)
@@ -308,10 +131,10 @@ int main(int argc, char **argv)
         atexit(log_close_atexit);
     }
 
-    loaded = load_keys(argv[0]);
+    loaded = demo_load_keys(argv[0]);
     if (loaded <= 0) {
-        log_summary("Could not load keys.txt (tried cwd, next to the "
-                     "executable, keymgmt/keys.txt, and security/keymgmt/keys.txt)\n");
+        log_summary("Could not load keys.txt (tried cwd, next to the executable, "
+                     "keymgmt/keys.txt, security/keymgmt/keys.txt, and ../keymgmt/keys.txt)\n");
         return 1;
     }
     log_summary("Loaded %d key entries\n", loaded);

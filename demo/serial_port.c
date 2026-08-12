@@ -2,6 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 
+long modbus_t35_us(long baud)
+{
+    long t35 = (baud > 19200) ? 1750 : (long) (3.5 * 11.0 * 1000000.0 / (double) baud);
+    return (t35 > MODBUS_T35_MIN_GAP_US) ? t35 : MODBUS_T35_MIN_GAP_US;
+}
+
 #ifdef _WIN32
 
 int serial_port_open(serial_port_t *sp, const char *port_name, long baud, int read_interval_timeout_us)

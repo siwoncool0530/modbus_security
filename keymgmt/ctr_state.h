@@ -36,4 +36,10 @@ int ctr_state_load(void);
 /* ctr_state_load()/ctr_state_persist()가 현재 디렉터리의 기본값인 "ctr_state.dat" 대신 특정 파일을 사용하도록 지정 */
 void ctr_state_set_path(const char *path);
 
+/* (slave_addr, dir)의 카운터 상태를 지워 처음 상태로 되돌림 -- 다음 ctr_state_next_outgoing()/
+   ctr_state_validate_incoming() 호출이 key_store의 initial_ctr부터 다시 시작하도록 함.
+   재커미셔닝(같은 주소를 새 키로 다시 페어링)이나, 같은 프로세스 안에서 같은 (addr, dir)로
+   반복 테스트할 때(예: 자체 테스트를 여러 번 실행) 이전 실행의 카운터 잔재로 어긋나는 것을 막는 데 사용. */
+void ctr_state_reset(uint8_t slave_addr, key_direction_t dir);
+
 #endif /* SECURITY_KEYMGMT_CTR_STATE_H */

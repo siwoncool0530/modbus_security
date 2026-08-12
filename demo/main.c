@@ -9,6 +9,7 @@
 #include "../crypto/lea_ctr.h"
 #include "../crypto/hmac_lsh.h"
 #include "serial_port.h"
+#include "key_paths.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -21,6 +22,7 @@ static char config_port[64] = "";      /* 비어있으면 포트 없이 파일�
 static long config_baud = 115200;
 static uint8_t config_slave_addr = 0x01;
 static int keys_loaded = 0;
+static const char *g_argv0 = NULL;     /* demo_load_keys()의 실행 파일 상대 경로 탐색용 */
 
 static void flush_stdin_line(void)
 {
@@ -29,29 +31,8 @@ static void flush_stdin_line(void)
     }
 }
 
-static uint16_t modbus_crc16(const uint8_t *buf, size_t len)
-{
-    uint16_t crc = 0xFFFF;
-    size_t i;
-    int bit;
-
-    for (i = 0; i < len; i++) {
-        crc ^= buf[i];
-        for (bit = 0; bit < 8; bit++) {
-            crc = (crc & 1) ? (uint16_t) ((crc >> 1) ^ 0xA001) : (uint16_t) (crc >> 1);
-        }
-    }
-    return crc;
-}
-
-/* T3.5 유휴 간격 (min 20ms) */
-#define MODBUS_T35_MIN_GAP_US 20000
-static long modbus_t35_us(long baud)
-{
-    long t35 = (baud > 19200) ? 1750 : (long) (3.5 * 11.0 * 1000000.0 / (double) baud);
-    return (t35 > MODBUS_T35_MIN_GAP_US) ? t35 : MODBUS_T35_MIN_GAP_US;
-}
-
+/* secure_send_demo.c/secure_recv_demo.c의 log-file 기반 print_hex()와 달리 콘솔에 바로
+   출력 -- main.c는 인터랙티브 도구라 로그 파일이 없고, 그 자리에서 바로 보여주는 게 맞음. */
 static void print_hex(const char *label, const uint8_t *buf, size_t len)
 {
     size_t i;
@@ -64,22 +45,10 @@ static void print_hex(const char *label, const uint8_t *buf, size_t len)
 
 static void do_key_init(void)
 {
-    /* keymgmt/keys.txt is the only copy that exists now (bin/'s duplicate was
-       removed) -- these paths cover running the binary from the security/
-       repo root (where the Makefile actually builds it), from one level
-       above it, or from a subdirectory like demo/. */
-    int loaded = key_store_load_file("keys.txt");
+    int loaded = demo_load_keys(g_argv0);
     if (loaded <= 0) {
-        loaded = key_store_load_file("keymgmt/keys.txt");
-    }
-    if (loaded <= 0) {
-        loaded = key_store_load_file("security/keymgmt/keys.txt");
-    }
-    if (loaded <= 0) {
-        loaded = key_store_load_file("../keymgmt/keys.txt");
-    }
-    if (loaded <= 0) {
-        printf("Could not load keys.txt (tried cwd, keymgmt/keys.txt, security/keymgmt/keys.txt, ../keymgmt/keys.txt)\n");
+        printf("Could not load keys.txt (tried cwd, next to the executable, "
+               "keymgmt/keys.txt, security/keymgmt/keys.txt, and ../keymgmt/keys.txt)\n");
         keys_loaded = 0;
         return;
     }
@@ -92,73 +61,54 @@ static void do_key_init(void)
    암호화한 회신까지 같은 포트로 보냄. */
 static void process_incoming_frame(const uint8_t *rx_buf, size_t rx_len, serial_port_t *sp)
 {
-    secure_frame_t frame;
-    directional_keys_t keys;
-    uint8_t mac_input[SECURE_FRAME_ADDR_LEN + SECURE_FRAME_MAX_ADU];
-    uint8_t expected_hmac[HMAC_LSH_FULL_SIZE];
-    lea_key_schedule_t ks;
-    uint8_t ctr_high[LEA_CTR_HIGH_SIZE];
-    uint32_t ctr_low;
-    uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];
+    uint8_t addr;
+    size_t ciphertext_len;
+    uint8_t pdu[SECURE_FRAME_MAX_PDU];
+    size_t pdu_len;
     uint16_t crc_calc, crc_recv;
+    secure_frame_status_t status;
 
-    if (!secure_frame_parse(rx_buf, rx_len, &frame)) {
+    status = secure_frame_verify_and_decrypt(rx_buf, rx_len, config_slave_addr, DIR_MASTER_TO_SLAVE,
+                                              &addr, &ciphertext_len, pdu, &pdu_len, &crc_calc, &crc_recv);
+    if (status == SECURE_FRAME_ERR_MALFORMED) {
         printf("Malformed frame (%u bytes, too short for addr+hmac)\n", (unsigned int) rx_len);
         return;
     }
-    printf("Parsed: addr=%u ciphertext_len=%u\n", (unsigned int) frame.addr, (unsigned int) frame.ciphertext_len);
+    printf("Parsed: addr=%u ciphertext_len=%u\n", (unsigned int) addr, (unsigned int) ciphertext_len);
 
-    /* 실제 RS-485 버스에는 슬레이브가 여럿 달릴 수 있어 이 프레임이 우리 주소로 온 게 아닐 수
-       있음 -- 그런 프레임은 (키가 있어도) 우리 것으로 처리하면 안 되므로 여기서 걸러냄. */
-    if (frame.addr != config_slave_addr) {
+    switch (status) {
+    case SECURE_FRAME_OK:
+        break;
+    case SECURE_FRAME_ERR_WRONG_ADDR:
+        /* 실제 RS-485 버스에는 슬레이브가 여럿 달릴 수 있어 이 프레임이 우리 주소로 온 게
+           아닐 수 있음 -- 그런 프레임은 (키가 있어도) 우리 것으로 처리하면 안 됨. */
         printf("Frame addressed to slave %u, not us (configured as %u) -- ignoring\n",
-               (unsigned int) frame.addr, (unsigned int) config_slave_addr);
+               (unsigned int) addr, (unsigned int) config_slave_addr);
         return;
-    }
-
-    if (key_store_lookup(frame.addr, DIR_MASTER_TO_SLAVE, &keys) != 0) {
-        printf("No m2s key provisioned for slave %u\n", (unsigned int) frame.addr);
+    case SECURE_FRAME_ERR_NO_KEY:
+        printf("No m2s key provisioned for slave %u\n", (unsigned int) addr);
         return;
-    }
-
-    mac_input[0] = frame.addr;
-    memcpy(mac_input + SECURE_FRAME_ADDR_LEN, frame.ciphertext, frame.ciphertext_len);
-    hmac_lsh256(keys.mac_key, KEY_SIZE, mac_input, SECURE_FRAME_ADDR_LEN + frame.ciphertext_len, expected_hmac);
-    if (memcmp(expected_hmac, frame.hmac, SECURE_FRAME_HMAC_LEN) != 0) {
+    case SECURE_FRAME_ERR_HMAC:
         printf("HMAC MISMATCH -- frame rejected\n");
         return;
-    }
-    printf("HMAC OK\n");
-
-    memset(ctr_high, 0, sizeof(ctr_high));
-    ctr_low = ctr_state_next_outgoing(frame.addr, DIR_MASTER_TO_SLAVE, frame.ciphertext_len);
-    lea_key_schedule(keys.enc_key, &ks);
-    lea_ctr_crypt(&ks, ctr_high, ctr_low, 0, frame.ciphertext, plaintext_adu, frame.ciphertext_len);
-
-    if (frame.ciphertext_len < SECURE_FRAME_CRC_LEN) {
-        printf("Decrypted ADU too short to hold a CRC\n");
-        return;
-    }
-    crc_calc = modbus_crc16(plaintext_adu, frame.ciphertext_len - SECURE_FRAME_CRC_LEN);
-    crc_recv = (uint16_t) plaintext_adu[frame.ciphertext_len - 2] |
-               ((uint16_t) plaintext_adu[frame.ciphertext_len - 1] << 8);
-    if (crc_calc != crc_recv) {
+    case SECURE_FRAME_ERR_CRC:
+    default:
         printf("CRC MISMATCH (calc %04X, recv %04X) -- wrong counter sync?\n", crc_calc, crc_recv);
         return;
     }
+    printf("HMAC OK\n");
     printf("CRC OK\n");
-    print_hex("Recovered PDU", plaintext_adu + SECURE_FRAME_ADDR_LEN,
-               frame.ciphertext_len - SECURE_FRAME_ADDR_LEN - SECURE_FRAME_CRC_LEN);
+    print_hex("Recovered PDU", pdu, pdu_len);
 
-    if (sp != NULL && frame.ciphertext_len >= SECURE_FRAME_ADDR_LEN + 5 + SECURE_FRAME_CRC_LEN) {
+    if (sp != NULL && pdu_len >= 5) {
         uint8_t reply_pdu[5];
         uint8_t reply_wire[SECURE_FRAME_MAX_WIRE_LEN];
         size_t reply_wire_len;
 
-        memcpy(reply_pdu, plaintext_adu + SECURE_FRAME_ADDR_LEN, sizeof(reply_pdu));
-        if (secure_frame_encrypt_and_build(frame.addr, reply_pdu, sizeof(reply_pdu),
+        memcpy(reply_pdu, pdu, sizeof(reply_pdu));
+        if (secure_frame_encrypt_and_build(addr, reply_pdu, sizeof(reply_pdu),
                                             DIR_SLAVE_TO_MASTER, reply_wire, &reply_wire_len) != 0) {
-            printf("Reply encrypt failed -- no s2m key for slave %u\n", (unsigned int) frame.addr);
+            printf("Reply encrypt failed -- no s2m key for slave %u\n", (unsigned int) addr);
         } else if (serial_port_write(sp, reply_wire, reply_wire_len) != 0) {
             printf("Reply write failed\n");
         } else {
@@ -199,15 +149,11 @@ static void run_as_master(void)
         serial_port_t sp;
         uint8_t rx_buf[SECURE_FRAME_MAX_WIRE_LEN];
         long rx_len;
-        secure_frame_t reply;
-        directional_keys_t keys;
-        uint8_t mac_input[SECURE_FRAME_ADDR_LEN + SECURE_FRAME_MAX_ADU];
-        uint8_t expected_hmac[HMAC_LSH_FULL_SIZE];
-        lea_key_schedule_t ks;
-        uint8_t ctr_high[LEA_CTR_HIGH_SIZE];
-        uint32_t ctr_low;
-        uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];
+        uint8_t reply_addr;
+        uint8_t reply_pdu[SECURE_FRAME_MAX_PDU];
+        size_t reply_pdu_len;
         uint16_t crc_calc, crc_recv;
+        secure_frame_status_t status;
 
         if (serial_port_open(&sp, config_port, config_baud, (int) modbus_t35_us(config_baud)) != 0) {
             printf("Could not open %s\n", config_port);
@@ -234,49 +180,33 @@ static void run_as_master(void)
         }
         print_hex("Received reply raw frame", rx_buf, rx_len);
 
-        if (!secure_frame_parse(rx_buf, rx_len, &reply)) {
+        status = secure_frame_verify_and_decrypt(rx_buf, (size_t) rx_len, config_slave_addr, DIR_SLAVE_TO_MASTER,
+                                                  &reply_addr, NULL, reply_pdu, &reply_pdu_len,
+                                                  &crc_calc, &crc_recv);
+        switch (status) {
+        case SECURE_FRAME_OK:
+            break;
+        case SECURE_FRAME_ERR_MALFORMED:
             printf("Malformed reply frame\n");
             return;
-        }
-        if (reply.addr != config_slave_addr) {
+        case SECURE_FRAME_ERR_WRONG_ADDR:
             printf("Reply addr mismatch (expected %u, got %u)\n",
-                   (unsigned int) config_slave_addr, (unsigned int) reply.addr);
+                   (unsigned int) config_slave_addr, (unsigned int) reply_addr);
             return;
-        }
-        if (key_store_lookup(config_slave_addr, DIR_SLAVE_TO_MASTER, &keys) != 0) {
+        case SECURE_FRAME_ERR_NO_KEY:
             printf("No s2m key provisioned for slave %u\n", (unsigned int) config_slave_addr);
             return;
-        }
-
-        mac_input[0] = reply.addr;
-        memcpy(mac_input + SECURE_FRAME_ADDR_LEN, reply.ciphertext, reply.ciphertext_len);
-        hmac_lsh256(keys.mac_key, KEY_SIZE, mac_input,
-                    SECURE_FRAME_ADDR_LEN + reply.ciphertext_len, expected_hmac);
-        if (memcmp(expected_hmac, reply.hmac, SECURE_FRAME_HMAC_LEN) != 0) {
+        case SECURE_FRAME_ERR_HMAC:
             printf("Reply HMAC MISMATCH\n");
             return;
-        }
-        printf("Reply HMAC OK\n");
-
-        memset(ctr_high, 0, sizeof(ctr_high));
-        ctr_low = ctr_state_next_outgoing(config_slave_addr, DIR_SLAVE_TO_MASTER, reply.ciphertext_len);
-        lea_key_schedule(keys.enc_key, &ks);
-        lea_ctr_crypt(&ks, ctr_high, ctr_low, 0, reply.ciphertext, plaintext_adu, reply.ciphertext_len);
-
-        if (reply.ciphertext_len < SECURE_FRAME_CRC_LEN) {
-            printf("Decrypted reply too short to hold a CRC\n");
-            return;
-        }
-        crc_calc = modbus_crc16(plaintext_adu, reply.ciphertext_len - SECURE_FRAME_CRC_LEN);
-        crc_recv = (uint16_t) plaintext_adu[reply.ciphertext_len - 2] |
-                   ((uint16_t) plaintext_adu[reply.ciphertext_len - 1] << 8);
-        if (crc_calc != crc_recv) {
+        case SECURE_FRAME_ERR_CRC:
+        default:
             printf("Reply CRC MISMATCH (calc %04X, recv %04X)\n", crc_calc, crc_recv);
             return;
         }
+        printf("Reply HMAC OK\n");
         printf("Reply CRC OK\n");
-        print_hex("Recovered reply PDU", plaintext_adu + SECURE_FRAME_ADDR_LEN,
-                   reply.ciphertext_len - SECURE_FRAME_ADDR_LEN - SECURE_FRAME_CRC_LEN);
+        print_hex("Recovered reply PDU", reply_pdu, reply_pdu_len);
         printf("Master exchange OK\n");
     }
 }
@@ -343,89 +273,176 @@ static void do_run_exchange(void)
     }
 }
 
-/* encrypt -> build -> parse -> HMAC 검증 -> LEA-CTR 복호화 -> CRC 검증까지 왕복 전 구간을
-   한 프로세스 안에서 실행해보는 암호화 로직 점검용 테스트. serial_port를 전혀 거치지 않으므로
-   이 테스트가 통과해도 실제 RS-485 배선/포트(/dev/ttyAMA0, COM 포트 등) 상태는 확인 X.
-  하드웨어/배선 확인은 옵션 4로 포트를 설정한 뒤 옵션 5(실행)로 해야 한다.
- */
+/* 암호화 로직 점검용 테스트: 하드웨어 없이 한 프로세스 안에서 실제 공개 API
+   (secure_frame_encrypt_and_build(), secure_frame_verify_and_decrypt())를 두 방향(m2s/s2m) 모두
+   실제로 호출해 검증한다. serial_port를 전혀 거치지 않으므로 통과해도 실제 RS-485 배선/포트
+   (/dev/ttyAMA0, COM 포트 등) 상태는 확인하지 못함 -- 하드웨어/배선 확인은 옵션 4로 포트를
+   설정한 뒤 옵션 5(실행)로 해야 한다.
+
+   두 체크가 서로 다른 테스트 주소(0xF0/0xF1)와 방향(m2s/s2m)을 쓰는 이유: ctr_state는
+   (addr, dir)별로 하나뿐인 프로세스 전역 카운터 테이블이라, 같은 (addr, dir)에 대해
+   secure_frame_encrypt_and_build()를 부른 직후 secure_frame_verify_and_decrypt()를 또
+   부르면 그 함수 내부의 ctr_state_next_outgoing()이 두 번째로 호출되어 이미 전진된 다음
+   카운터를 받아오게 되므로 복호화가 실패한다 (재현: 옵션 3을 실제 함수 두 개로 같은 주소에
+   대해 연달아 부르면 두 번째 호출이 CRC mismatch로 실패). 아래 두 체크는 서로 다른
+   (addr, dir) 슬롯을 쓰므로 이 문제를 피하면서도 실제 공개 함수를 그대로 검증한다. */
 static void do_self_test(void)
 {
-    const uint8_t test_addr = 0xF0;
-    uint8_t enc_key[KEY_SIZE], mac_key[KEY_SIZE];
-    uint8_t plaintext_pdu[5] = {0x03, 0x00, 0x00, 0x00, 0x02}; /* read holding registers, addr 0, qty 2 */
-    uint8_t plaintext_adu_in[SECURE_FRAME_MAX_ADU];
-    size_t adu_len;
-    uint16_t crc;
-    secure_frame_t frame;
-    uint8_t wire[SECURE_FRAME_MAX_WIRE_LEN];
-    size_t wire_len;
-    secure_frame_t parsed;
-    uint8_t mac_input[SECURE_FRAME_ADDR_LEN + SECURE_FRAME_MAX_ADU];
-    uint8_t expected_hmac[HMAC_LSH_FULL_SIZE];
-    lea_key_schedule_t ks;
-    uint8_t ctr_high[LEA_CTR_HIGH_SIZE];
-    uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];
-    uint16_t crc_calc, crc_recv;
+    int ok = 1;
     int i;
 
     printf("Running crypto logic self-test (no serial port involved)...\n");
 
-    for (i = 0; i < KEY_SIZE; i++) {
-        enc_key[i] = (uint8_t) (0x10 + i);
-        mac_key[i] = (uint8_t) (0x20 + i);
+    /* --- encrypt-path check: 실제 secure_frame_encrypt_and_build()를 호출해 검증.
+       0xF0/m2s는 이 프로세스에서 처음 쓰이므로 그 함수 내부의 ctr_state_next_outgoing()
+       호출이 항상 0을 반환 -- 그 사실을 이용해 복호화는 secure_frame_verify_and_decrypt()를
+       다시 부르지 않고(위 주석 참고) 알고 있는 ctr_low=0으로 직접 검증한다. */
+    {
+        const uint8_t addr = 0xF0;
+        directional_keys_t dk;
+        uint8_t pdu[5] = {0x03, 0x00, 0x00, 0x00, 0x02}; /* read holding registers, addr 0, qty 2 */
+        uint8_t wire[SECURE_FRAME_MAX_WIRE_LEN];
+        size_t wire_len;
+        secure_frame_t parsed;
+        uint8_t mac_input[SECURE_FRAME_ADDR_LEN + SECURE_FRAME_MAX_ADU];
+        uint8_t expected_hmac[HMAC_LSH_FULL_SIZE];
+        lea_key_schedule_t ks;
+        uint8_t ctr_high[LEA_CTR_HIGH_SIZE];
+        uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];
+        uint16_t crc_calc, crc_recv;
+
+        for (i = 0; i < KEY_SIZE; i++) {
+            dk.enc_key[i] = (uint8_t) (0x10 + i);
+            dk.mac_key[i] = (uint8_t) (0x20 + i);
+        }
+
+        /* 이 셀프 테스트가 같은 프로세스 안에서 여러 번 실행돼도(옵션 3을 반복 선택) 항상
+           ctr_low=0부터 다시 시작하도록 리셋 -- 안 하면 두 번째 실행부터 이 (addr, dir)의
+           카운터가 이미 전진해 있어 아래 수동 복호화의 ctr_low=0 가정이 깨진다. */
+        ctr_state_reset(addr, DIR_MASTER_TO_SLAVE);
+
+        if (key_store_provision(addr, DIR_MASTER_TO_SLAVE, &dk) != 0) {
+            printf("FAIL (encrypt path): key_store_provision failed\n");
+            ok = 0;
+        } else if (secure_frame_encrypt_and_build(addr, pdu, sizeof(pdu), DIR_MASTER_TO_SLAVE,
+                                                   wire, &wire_len) != 0) {
+            printf("FAIL (encrypt path): secure_frame_encrypt_and_build failed\n");
+            ok = 0;
+        } else if (!secure_frame_parse(wire, wire_len, &parsed)) {
+            printf("FAIL (encrypt path): secure_frame_parse rejected the frame it just built\n");
+            ok = 0;
+        } else {
+            mac_input[0] = parsed.addr;
+            memcpy(mac_input + SECURE_FRAME_ADDR_LEN, parsed.ciphertext, parsed.ciphertext_len);
+            hmac_lsh256(dk.mac_key, KEY_SIZE, mac_input, SECURE_FRAME_ADDR_LEN + parsed.ciphertext_len,
+                        expected_hmac);
+            if (memcmp(expected_hmac, parsed.hmac, SECURE_FRAME_HMAC_LEN) != 0) {
+                printf("FAIL (encrypt path): HMAC mismatch\n");
+                ok = 0;
+            } else {
+                memset(ctr_high, 0, sizeof(ctr_high));
+                lea_key_schedule(dk.enc_key, &ks);
+                lea_ctr_crypt(&ks, ctr_high, 0, 0, parsed.ciphertext, plaintext_adu, parsed.ciphertext_len);
+
+                crc_calc = secure_frame_crc16(plaintext_adu, parsed.ciphertext_len - SECURE_FRAME_CRC_LEN);
+                crc_recv = (uint16_t) plaintext_adu[parsed.ciphertext_len - 2] |
+                           ((uint16_t) plaintext_adu[parsed.ciphertext_len - 1] << 8);
+                if (crc_calc != crc_recv) {
+                    printf("FAIL (encrypt path): CRC mismatch after decrypt (calc %04X, recv %04X)\n",
+                           crc_calc, crc_recv);
+                    ok = 0;
+                } else if (plaintext_adu[0] != addr ||
+                           memcmp(plaintext_adu + SECURE_FRAME_ADDR_LEN, pdu, sizeof(pdu)) != 0) {
+                    printf("FAIL (encrypt path): recovered PDU does not match what was sent\n");
+                    ok = 0;
+                } else {
+                    printf("PASS (encrypt path): secure_frame_encrypt_and_build -> parse -> HMAC verify -> "
+                           "decrypt -> CRC check OK (%u byte PDU, %u byte wire frame)\n",
+                           (unsigned int) sizeof(pdu), (unsigned int) wire_len);
+                }
+            }
+        }
     }
-    memset(ctr_high, 0, sizeof(ctr_high));
 
-    plaintext_adu_in[0] = test_addr;
-    memcpy(plaintext_adu_in + SECURE_FRAME_ADDR_LEN, plaintext_pdu, sizeof(plaintext_pdu));
-    crc = modbus_crc16(plaintext_adu_in, SECURE_FRAME_ADDR_LEN + sizeof(plaintext_pdu));
-    plaintext_adu_in[SECURE_FRAME_ADDR_LEN + sizeof(plaintext_pdu)] = (uint8_t) (crc & 0xFF);
-    plaintext_adu_in[SECURE_FRAME_ADDR_LEN + sizeof(plaintext_pdu) + 1] = (uint8_t) (crc >> 8);
-    adu_len = SECURE_FRAME_ADDR_LEN + sizeof(plaintext_pdu) + SECURE_FRAME_CRC_LEN;
+    /* --- decrypt-path check: 실제 secure_frame_verify_and_decrypt()를 호출해 검증하며,
+       파일 왕복 테스트(마스터가 sent_frame.bin에 쓰고 슬레이브가 읽는 방식)로는 절대 닿지
+       않는 DIR_SLAVE_TO_MASTER 방향까지 커버한다 (그 왕복은 항상 DIR_MASTER_TO_SLAVE만 씀).
+       0xF1/s2m은 위 encrypt-path 체크와 다른 (addr, dir) 슬롯이라 독립적으로 새 것이므로,
+       ctr_low=0으로 직접 만든 프레임을 실제 secure_frame_verify_and_decrypt()에 바로 넘겨도
+       안전하다 (그 함수의 첫 ctr_state_next_outgoing() 호출도 0을 반환하므로 서로 맞음). */
+    {
+        const uint8_t addr = 0xF1;
+        directional_keys_t dk;
+        uint8_t pdu[5] = {0x10, 0x00, 0x01, 0x00, 0x02}; /* write multiple registers, addr 1, qty 2 */
+        uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];
+        size_t adu_len;
+        uint16_t crc;
+        secure_frame_t frame;
+        uint8_t wire[SECURE_FRAME_MAX_WIRE_LEN];
+        size_t wire_len;
+        lea_key_schedule_t ks;
+        uint8_t ctr_high[LEA_CTR_HIGH_SIZE];
+        uint8_t mac_input[SECURE_FRAME_ADDR_LEN + SECURE_FRAME_MAX_ADU];
+        uint8_t out_addr;
+        uint8_t out_pdu[SECURE_FRAME_MAX_PDU];
+        size_t out_pdu_len;
+        uint16_t crc_calc, crc_recv;
+        secure_frame_status_t status;
 
-    frame.addr = test_addr;
-    frame.ciphertext_len = adu_len;
-    lea_key_schedule(enc_key, &ks);
-    lea_ctr_crypt(&ks, ctr_high, 0, 1, plaintext_adu_in, frame.ciphertext, adu_len);
+        for (i = 0; i < KEY_SIZE; i++) {
+            dk.enc_key[i] = (uint8_t) (0x30 + i);
+            dk.mac_key[i] = (uint8_t) (0x40 + i);
+        }
 
-    mac_input[0] = frame.addr;
-    memcpy(mac_input + SECURE_FRAME_ADDR_LEN, frame.ciphertext, adu_len);
-    hmac_lsh256(mac_key, KEY_SIZE, mac_input, SECURE_FRAME_ADDR_LEN + adu_len, frame.hmac);
+        memset(ctr_high, 0, sizeof(ctr_high));
+        plaintext_adu[0] = addr;
+        memcpy(plaintext_adu + SECURE_FRAME_ADDR_LEN, pdu, sizeof(pdu));
+        crc = secure_frame_crc16(plaintext_adu, SECURE_FRAME_ADDR_LEN + sizeof(pdu));
+        plaintext_adu[SECURE_FRAME_ADDR_LEN + sizeof(pdu)] = (uint8_t) (crc & 0xFF);
+        plaintext_adu[SECURE_FRAME_ADDR_LEN + sizeof(pdu) + 1] = (uint8_t) (crc >> 8);
+        adu_len = SECURE_FRAME_ADDR_LEN + sizeof(pdu) + SECURE_FRAME_CRC_LEN;
 
-    wire_len = secure_frame_build(&frame, wire);
+        frame.addr = addr;
+        frame.ciphertext_len = adu_len;
+        lea_key_schedule(dk.enc_key, &ks);
+        lea_ctr_crypt(&ks, ctr_high, 0, 1, plaintext_adu, frame.ciphertext, adu_len);
 
-    if (!secure_frame_parse(wire, wire_len, &parsed)) {
-        printf("FAIL: secure_frame_parse rejected the frame it just built\n");
-        return;
+        mac_input[0] = frame.addr;
+        memcpy(mac_input + SECURE_FRAME_ADDR_LEN, frame.ciphertext, adu_len);
+        hmac_lsh256(dk.mac_key, KEY_SIZE, mac_input, SECURE_FRAME_ADDR_LEN + adu_len, frame.hmac);
+
+        wire_len = secure_frame_build(&frame, wire);
+
+        /* 위 encrypt-path 체크와 같은 이유로 리셋 -- 아래 secure_frame_verify_and_decrypt()
+           호출이 이 (addr, dir)에 대해 처음 ctr_state_next_outgoing()을 부르는 것이어야
+           위에서 직접 만든 ctr_low=0 프레임과 맞는다. */
+        ctr_state_reset(addr, DIR_SLAVE_TO_MASTER);
+
+        if (key_store_provision(addr, DIR_SLAVE_TO_MASTER, &dk) != 0) {
+            printf("FAIL (decrypt path): key_store_provision failed\n");
+            ok = 0;
+        } else {
+            status = secure_frame_verify_and_decrypt(wire, wire_len, addr, DIR_SLAVE_TO_MASTER,
+                                                       &out_addr, NULL, out_pdu, &out_pdu_len,
+                                                       &crc_calc, &crc_recv);
+            if (status != SECURE_FRAME_OK) {
+                printf("FAIL (decrypt path): secure_frame_verify_and_decrypt returned %d "
+                       "(calc %04X, recv %04X)\n", (int) status, crc_calc, crc_recv);
+                ok = 0;
+            } else if (out_pdu_len != sizeof(pdu) || memcmp(out_pdu, pdu, sizeof(pdu)) != 0) {
+                printf("FAIL (decrypt path): recovered PDU does not match what was sent\n");
+                ok = 0;
+            } else {
+                printf("PASS (decrypt path): hand-built frame -> secure_frame_verify_and_decrypt OK "
+                       "(%u byte PDU, %u byte wire frame)\n",
+                       (unsigned int) out_pdu_len, (unsigned int) wire_len);
+            }
+        }
     }
 
-    mac_input[0] = parsed.addr;
-    memcpy(mac_input + SECURE_FRAME_ADDR_LEN, parsed.ciphertext, parsed.ciphertext_len);
-    hmac_lsh256(mac_key, KEY_SIZE, mac_input, SECURE_FRAME_ADDR_LEN + parsed.ciphertext_len, expected_hmac);
-    if (memcmp(expected_hmac, parsed.hmac, SECURE_FRAME_HMAC_LEN) != 0) {
-        printf("FAIL: HMAC mismatch\n");
-        return;
+    if (ok) {
+        printf("Self-test: ALL PASS\n");
     }
-
-    lea_ctr_crypt(&ks, ctr_high, 0, 0, parsed.ciphertext, plaintext_adu, parsed.ciphertext_len);
-
-    crc_calc = modbus_crc16(plaintext_adu, parsed.ciphertext_len - SECURE_FRAME_CRC_LEN);
-    crc_recv = (uint16_t) plaintext_adu[parsed.ciphertext_len - 2] |
-               ((uint16_t) plaintext_adu[parsed.ciphertext_len - 1] << 8);
-    if (crc_calc != crc_recv) {
-        printf("FAIL: CRC mismatch after decrypt (calc %04X, recv %04X)\n", crc_calc, crc_recv);
-        return;
-    }
-
-    if (plaintext_adu[0] != test_addr ||
-        memcmp(plaintext_adu + SECURE_FRAME_ADDR_LEN, plaintext_pdu, sizeof(plaintext_pdu)) != 0) {
-        printf("FAIL: recovered PDU does not match what was sent\n");
-        return;
-    }
-
-    printf("PASS: encrypt -> parse -> HMAC verify -> decrypt -> CRC check round-trip OK "
-           "(%u byte PDU, %u byte wire frame)\n",
-           (unsigned int) sizeof(plaintext_pdu), (unsigned int) wire_len);
 }
 
 static void do_env_config(void)
@@ -471,7 +488,10 @@ static void do_env_config(void)
            (unsigned int) config_slave_addr);
 }
 
-int main(void) {
+int main(int argc, char **argv)
+{
+    (void) argc;
+    g_argv0 = argv[0];
 
     while (1) {
         printf("----------------------------\n");

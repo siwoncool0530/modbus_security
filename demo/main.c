@@ -8,6 +8,7 @@
 #include "../crypto/lea.h"
 #include "../crypto/lea_ctr.h"
 #include "../crypto/hmac_lsh.h"
+#include "../modbus/modbus_pdu.h"
 #include "serial_port.h"
 #include "key_paths.h"
 
@@ -21,6 +22,9 @@ int is_master = 1;
 static char config_port[64] = "";      /* 비어있으면 포트 없이 파일로 폴백 */
 static long config_baud = 115200;
 static uint8_t config_slave_addr = 0x01;
+static uint8_t config_func_code = MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS; /* 기존 데모 기본값과 동일 */
+static uint16_t config_start_addr = 1;
+static uint16_t config_value_or_qty = 2;
 static int keys_loaded = 0;
 static const char *g_argv0 = NULL;     /* demo_load_keys()의 실행 파일 상대 경로 탐색용 */
 
@@ -100,14 +104,16 @@ static void process_incoming_frame(const uint8_t *rx_buf, size_t rx_len, serial_
     printf("CRC OK\n");
     print_hex("Recovered PDU", pdu, pdu_len);
 
-    if (sp != NULL && pdu_len >= 5) {
-        uint8_t reply_pdu[5];
+    if (sp != NULL) {
+        uint8_t reply_pdu[SECURE_FRAME_MAX_PDU];
+        size_t reply_pdu_len;
         uint8_t reply_wire[SECURE_FRAME_MAX_WIRE_LEN];
         size_t reply_wire_len;
 
-        memcpy(reply_pdu, pdu, sizeof(reply_pdu));
-        if (secure_frame_encrypt_and_build(addr, reply_pdu, sizeof(reply_pdu),
-                                            DIR_SLAVE_TO_MASTER, reply_wire, &reply_wire_len) != 0) {
+        if (!modbus_build_response(pdu, pdu_len, reply_pdu, &reply_pdu_len)) {
+            printf("Request too short to identify a function code -- skipping reply\n");
+        } else if (secure_frame_encrypt_and_build(addr, reply_pdu, reply_pdu_len,
+                                                    DIR_SLAVE_TO_MASTER, reply_wire, &reply_wire_len) != 0) {
             printf("Reply encrypt failed -- no s2m key for slave %u\n", (unsigned int) addr);
         } else if (serial_port_write(sp, reply_wire, reply_wire_len) != 0) {
             printf("Reply write failed\n");
@@ -119,14 +125,36 @@ static void process_incoming_frame(const uint8_t *rx_buf, size_t rx_len, serial_
     printf("Slave processing OK\n");
 }
 
+static const char *modbus_exception_name(uint8_t code)
+{
+    switch (code) {
+    case MODBUS_EXCEPTION_ILLEGAL_FUNCTION:
+        return "Illegal Function";
+    case MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS:
+        return "Illegal Data Address";
+    case MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE:
+        return "Illegal Data Value";
+    default:
+        return "unknown";
+    }
+}
+
 static void run_as_master(void)
 {
     uint8_t wire_frame[SECURE_FRAME_MAX_WIRE_LEN];
     size_t wire_len;
-    /* 고정된 데모 PDU: function 0x10(여러 레지스터 쓰기), 시작주소 0x0001, 2개 레지스터 */
-    uint8_t plaintext_pdu[10] = {0x10, 0x00, 0x01, 0x00, 0x02, 0x04, 0x00, 0x2A, 0x00, 0x2B};
+    uint8_t plaintext_pdu[SECURE_FRAME_MAX_PDU];
+    size_t pdu_len;
 
-    if (secure_frame_encrypt_and_build(config_slave_addr, plaintext_pdu, sizeof(plaintext_pdu),
+    if (!modbus_build_request(config_func_code, config_start_addr, config_value_or_qty,
+                               plaintext_pdu, &pdu_len)) {
+        printf("Could not build request -- function code 0x%02X or quantity %u invalid "
+               "for that function\n",
+               (unsigned int) config_func_code, (unsigned int) config_value_or_qty);
+        return;
+    }
+
+    if (secure_frame_encrypt_and_build(config_slave_addr, plaintext_pdu, pdu_len,
                                         DIR_MASTER_TO_SLAVE, wire_frame, &wire_len) != 0) {
         printf("Encrypt failed -- no m2s key provisioned for slave %u\n", (unsigned int) config_slave_addr);
         return;
@@ -207,7 +235,13 @@ static void run_as_master(void)
         printf("Reply HMAC OK\n");
         printf("Reply CRC OK\n");
         print_hex("Recovered reply PDU", reply_pdu, reply_pdu_len);
-        printf("Master exchange OK\n");
+        if (reply_pdu_len >= 2 && (reply_pdu[0] & MODBUS_EXCEPTION_BIT)) {
+            printf("Reply is a Modbus EXCEPTION: function 0x%02X, code 0x%02X (%s)\n",
+                   (unsigned int) reply_pdu[0], (unsigned int) reply_pdu[1],
+                   modbus_exception_name(reply_pdu[1]));
+        } else {
+            printf("Master exchange OK\n");
+        }
     }
 }
 
@@ -445,6 +479,65 @@ static void do_self_test(void)
     }
 }
 
+static const char *modbus_func_name(uint8_t func)
+{
+    switch (func) {
+    case MODBUS_FUNC_READ_COILS:
+        return "Read Coils";
+    case MODBUS_FUNC_READ_DISCRETE_INPUTS:
+        return "Read Discrete Inputs";
+    case MODBUS_FUNC_READ_HOLDING_REGISTERS:
+        return "Read Holding Registers";
+    case MODBUS_FUNC_READ_INPUT_REGISTERS:
+        return "Read Input Registers";
+    case MODBUS_FUNC_WRITE_SINGLE_COIL:
+        return "Write Single Coil";
+    case MODBUS_FUNC_WRITE_SINGLE_REGISTER:
+        return "Write Single Register";
+    case MODBUS_FUNC_WRITE_MULTIPLE_COILS:
+        return "Write Multiple Coils";
+    case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
+        return "Write Multiple Registers";
+    default:
+        return "?";
+    }
+}
+
+static int modbus_func_is_supported(uint8_t func)
+{
+    switch (func) {
+    case MODBUS_FUNC_READ_COILS:
+    case MODBUS_FUNC_READ_DISCRETE_INPUTS:
+    case MODBUS_FUNC_READ_HOLDING_REGISTERS:
+    case MODBUS_FUNC_READ_INPUT_REGISTERS:
+    case MODBUS_FUNC_WRITE_SINGLE_COIL:
+    case MODBUS_FUNC_WRITE_SINGLE_REGISTER:
+    case MODBUS_FUNC_WRITE_MULTIPLE_COILS:
+    case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* value_or_qty 프롬프트에 붙는 설명은 함수 코드에 따라 의미가 다름 (modbus_pdu.h의
+   modbus_build_request() 문서 주석과 동일한 대응). */
+static const char *value_or_qty_label(uint8_t func)
+{
+    switch (func) {
+    case MODBUS_FUNC_WRITE_SINGLE_COIL:
+        return "Coil value (0=OFF, 1=ON)";
+    case MODBUS_FUNC_WRITE_SINGLE_REGISTER:
+        return "Register value (0-65535)";
+    case MODBUS_FUNC_WRITE_MULTIPLE_COILS:
+        return "Quantity of coils to write (values auto-generated)";
+    case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
+        return "Quantity of registers to write (values auto-generated)";
+    default:
+        return "Quantity to read";
+    }
+}
+
 static void do_env_config(void)
 {
     char line[64];
@@ -483,9 +576,55 @@ static void do_env_config(void)
         }
     }
 
-    printf("Config: port=%s baud=%ld slave_addr=%u\n",
+    printf("Function code (1=Read Coils, 2=Read Discrete Inputs, 3=Read Holding Regs, "
+           "4=Read Input Regs, 5=Write Single Coil, 6=Write Single Reg, "
+           "15=Write Multiple Coils, 16=Write Multiple Regs) [current: %u (%s)]: ",
+           (unsigned int) config_func_code, modbus_func_name(config_func_code));
+    if (fgets(line, sizeof(line), stdin) != NULL) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] != '\0') {
+            long v = strtol(line, NULL, 10);
+            if (v >= 0 && v <= 255 && modbus_func_is_supported((uint8_t) v)) {
+                config_func_code = (uint8_t) v;
+            } else {
+                printf("Not one of the 8 supported function codes, keeping %u (%s)\n",
+                       (unsigned int) config_func_code, modbus_func_name(config_func_code));
+            }
+        }
+    }
+
+    printf("Start address 0-65535 [current: %u]: ", (unsigned int) config_start_addr);
+    if (fgets(line, sizeof(line), stdin) != NULL) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] != '\0') {
+            long v = strtol(line, NULL, 10);
+            if (v >= 0 && v <= 65535) {
+                config_start_addr = (uint16_t) v;
+            } else {
+                printf("Out of range, keeping %u\n", (unsigned int) config_start_addr);
+            }
+        }
+    }
+
+    printf("%s [current: %u]: ", value_or_qty_label(config_func_code),
+           (unsigned int) config_value_or_qty);
+    if (fgets(line, sizeof(line), stdin) != NULL) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] != '\0') {
+            long v = strtol(line, NULL, 10);
+            if (v >= 0 && v <= 65535) {
+                config_value_or_qty = (uint16_t) v;
+            } else {
+                printf("Out of range, keeping %u\n", (unsigned int) config_value_or_qty);
+            }
+        }
+    }
+
+    printf("Config: port=%s baud=%ld slave_addr=%u func=0x%02X (%s) start_addr=%u value/qty=%u\n",
            config_port[0] ? config_port : "(none, file fallback)", config_baud,
-           (unsigned int) config_slave_addr);
+           (unsigned int) config_slave_addr, (unsigned int) config_func_code,
+           modbus_func_name(config_func_code), (unsigned int) config_start_addr,
+           (unsigned int) config_value_or_qty);
 }
 
 int main(int argc, char **argv)

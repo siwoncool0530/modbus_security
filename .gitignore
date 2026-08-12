@@ -1,0 +1,11 @@
+*.o
+*.exe
+secure_demo
+secure_send_demo
+secure_recv_demo
+
+*.dat
+*.bin
+recv_log.txt
+send_log.txt
+keys.txt

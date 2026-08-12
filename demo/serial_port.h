@@ -18,6 +18,19 @@ typedef struct {
     int read_interval_timeout_us;
 } serial_port_t;
 
+/* Modbus RTU 스펙의 T3.5 유휴 간격(이 이상 침묵하면 프레임 경계로 간주)을
+   마이크로초 단위로 계산. 19200 baud 초과에서는 스펙이 고정 1750us를 규정하고,
+   그 이하에서는 3.5 캐릭터 타임 (스펙이 가정하는 11비트 캐릭터: start+8data+parity+stop
+   기준 -- 현재 로컬 UART 설정은 8N1).
+
+   MIN_GAP_US: CM5의 실제 UART로 9600/19200/38400/57600 baud에서 순수 스펙값(1.7~4ms)이
+   매번 프레임을 16/16/12바이트로 조기에 절단시키는 것을 실측 확인 (T3.5 값 자체를 baud별로 바꿔가며 재현해도 절단 지점이 동일
+   - 회선 타이밍이 아니라 커널/드라이버 쪽 고정 지연이 원인). 이분 탐색으로 16ms에서 실패, 17ms에서 성공하는 정확한 경계를 확인
+   - 여유를 두고 20ms로 최소값을 둠.
+   115200 baud는 이 바닥이 없어도(순수 스펙값 334us로도) 항상 성공했으므로 이 최소값은 그 경우엔 그냥 더 보수적인 값. */
+#define MODBUS_T35_MIN_GAP_US 20000
+long modbus_t35_us(long baud);
+
 /* port_name(Windows "COM3", Linux "/dev/ttyUSB0" 등)을 읽기/쓰기용으로 열고 baud, 8N1, 흐름 제어 없음으로 설정.
    read_interval_timeout_us는 serial_port_read()가 "프레임 종료"로 간주하는 바이트 간 유휴 간격을
    마이크로초 단위로 지정 (순수 송신자는 의미 없으므로 0을 넘기면 됨). Modbus 실제 T3.5는 baud가 높을수록

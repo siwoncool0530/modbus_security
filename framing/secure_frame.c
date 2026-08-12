@@ -7,7 +7,7 @@
 
 /* 표준 Modbus CRC16 (다항식 0xA001, 하위 바이트 먼저 전송)
    이 모듈이 독립적으로 동작해야 하므로 512바이트 테이블을 끌어오지 않았을 뿐, modbus-rtu.c의 테이블 기반 crc16()과 알고리즘은 같다. */
-static uint16_t modbus_crc16(const uint8_t *buf, size_t len)
+uint16_t secure_frame_crc16(const uint8_t *buf, size_t len)
 {
     uint16_t crc = 0xFFFF;
     size_t i;
@@ -92,7 +92,7 @@ int secure_frame_encrypt_and_build(uint8_t slave_addr,
        주소를 포함한 이 ADU 전체가 아래에서 암호화되는 대상이며, 바깥쪽 프레임의 평문 addr 바이트는 오직 라우팅 목적으로만 존재함 */
     plaintext_adu[0] = slave_addr;
     memcpy(plaintext_adu + SECURE_FRAME_ADDR_LEN, plaintext_pdu, pdu_len);
-    crc = modbus_crc16(plaintext_adu, SECURE_FRAME_ADDR_LEN + pdu_len);
+    crc = secure_frame_crc16(plaintext_adu, SECURE_FRAME_ADDR_LEN + pdu_len);
     plaintext_adu[SECURE_FRAME_ADDR_LEN + pdu_len] = (uint8_t) (crc & 0xFF);
     plaintext_adu[SECURE_FRAME_ADDR_LEN + pdu_len + 1] = (uint8_t) (crc >> 8);
     adu_len = SECURE_FRAME_ADDR_LEN + pdu_len + SECURE_FRAME_CRC_LEN;
@@ -115,4 +115,78 @@ int secure_frame_encrypt_and_build(uint8_t slave_addr,
 
     *out_len = secure_frame_build(&frame, out);
     return 0;
+}
+
+secure_frame_status_t secure_frame_verify_and_decrypt(const uint8_t *wire,
+                                                        size_t wire_len,
+                                                        uint8_t expected_addr,
+                                                        key_direction_t dir,
+                                                        uint8_t *out_addr,
+                                                        size_t *out_ciphertext_len,
+                                                        uint8_t *out_pdu,
+                                                        size_t *out_pdu_len,
+                                                        uint16_t *out_crc_calc,
+                                                        uint16_t *out_crc_recv)
+{
+    secure_frame_t frame;
+    directional_keys_t keys;
+    uint8_t mac_input[SECURE_FRAME_ADDR_LEN + SECURE_FRAME_MAX_ADU];
+    uint8_t expected_hmac[HMAC_LSH_FULL_SIZE];
+    lea_key_schedule_t ks;
+    uint8_t ctr_high[LEA_CTR_HIGH_SIZE];
+    uint32_t ctr_low;
+    uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];
+    uint16_t crc_calc, crc_recv;
+
+    if (!secure_frame_parse(wire, wire_len, &frame)) {
+        return SECURE_FRAME_ERR_MALFORMED;
+    }
+
+    if (out_addr != NULL) {
+        *out_addr = frame.addr;
+    }
+    if (out_ciphertext_len != NULL) {
+        *out_ciphertext_len = frame.ciphertext_len;
+    }
+
+    if (expected_addr != SECURE_FRAME_ANY_ADDR && frame.addr != expected_addr) {
+        return SECURE_FRAME_ERR_WRONG_ADDR;
+    }
+
+    if (key_store_lookup(frame.addr, dir, &keys) != 0) {
+        return SECURE_FRAME_ERR_NO_KEY;
+    }
+
+    mac_input[0] = frame.addr;
+    memcpy(mac_input + SECURE_FRAME_ADDR_LEN, frame.ciphertext, frame.ciphertext_len);
+    hmac_lsh256(keys.mac_key, KEY_SIZE, mac_input, SECURE_FRAME_ADDR_LEN + frame.ciphertext_len, expected_hmac);
+    if (memcmp(expected_hmac, frame.hmac, SECURE_FRAME_HMAC_LEN) != 0) {
+        return SECURE_FRAME_ERR_HMAC;
+    }
+
+    memset(ctr_high, 0, sizeof(ctr_high));
+    ctr_low = ctr_state_next_outgoing(frame.addr, dir, frame.ciphertext_len);
+    lea_key_schedule(keys.enc_key, &ks);
+    lea_ctr_crypt(&ks, ctr_high, ctr_low, 0, frame.ciphertext, plaintext_adu, frame.ciphertext_len);
+
+    if (frame.ciphertext_len < SECURE_FRAME_CRC_LEN) {
+        return SECURE_FRAME_ERR_CRC;
+    }
+    crc_calc = secure_frame_crc16(plaintext_adu, frame.ciphertext_len - SECURE_FRAME_CRC_LEN);
+    crc_recv = (uint16_t) plaintext_adu[frame.ciphertext_len - 2] |
+               ((uint16_t) plaintext_adu[frame.ciphertext_len - 1] << 8);
+    if (out_crc_calc != NULL) {
+        *out_crc_calc = crc_calc;
+    }
+    if (out_crc_recv != NULL) {
+        *out_crc_recv = crc_recv;
+    }
+    if (crc_calc != crc_recv) {
+        return SECURE_FRAME_ERR_CRC;
+    }
+
+    *out_pdu_len = frame.ciphertext_len - SECURE_FRAME_ADDR_LEN - SECURE_FRAME_CRC_LEN;
+    memcpy(out_pdu, plaintext_adu + SECURE_FRAME_ADDR_LEN, *out_pdu_len);
+
+    return SECURE_FRAME_OK;
 }

@@ -67,18 +67,26 @@ else
   ARCH_CFLAGS  = -DNO_AVX2 -DNO_XOP -DNO_PCLMUL -DNO_SSE2
 endif
 
-DEMO_COMMON = demo/serial_port.c
+# key_paths.c (exe-relative path + keys.txt search) is needed by all three demo
+# binaries, so it rides in DEMO_COMMON/LIB_OBJS like serial_port.c already does.
+# demo_log.c (file logging + its print_hex) is only used by secure_send_demo and
+# secure_recv_demo -- main.c has its own console-only print_hex and no log file
+# -- so it gets its own object list linked into just those two targets, keeping
+# it out of secure_demo's binary.
+DEMO_COMMON = demo/serial_port.c demo/key_paths.c
+DEMO_LOG    = demo/demo_log.c
 
 LIB_SRCS  = $(SEC_SRCS) $(LEA_REF_COMMON) $(LEA_REF_ARCH) $(DEMO_COMMON)
 LIB_OBJS  = $(patsubst %.c,%.o,$(patsubst %.S,%.o,$(LIB_SRCS)))
+DEMO_LOG_OBJS = $(patsubst %.c,%.o,$(DEMO_LOG))
 
 .PHONY: all clean
 all: secure_send_demo secure_recv_demo secure_demo
 
-secure_send_demo: demo/secure_send_demo.o $(LIB_OBJS)
+secure_send_demo: demo/secure_send_demo.o $(LIB_OBJS) $(DEMO_LOG_OBJS)
 	$(CC) $^ -o $@
 
-secure_recv_demo: demo/secure_recv_demo.o $(LIB_OBJS)
+secure_recv_demo: demo/secure_recv_demo.o $(LIB_OBJS) $(DEMO_LOG_OBJS)
 	$(CC) $^ -o $@
 
 secure_demo: demo/main.o $(LIB_OBJS)
@@ -91,4 +99,4 @@ secure_demo: demo/main.o $(LIB_OBJS)
 	$(CC) $(CFLAGS) $(ARCH_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f secure_send_demo secure_recv_demo secure_demo demo/secure_send_demo.o demo/secure_recv_demo.o demo/main.o $(LIB_OBJS)
+	rm -f secure_send_demo secure_recv_demo secure_demo demo/secure_send_demo.o demo/secure_recv_demo.o demo/main.o $(LIB_OBJS) $(DEMO_LOG_OBJS)

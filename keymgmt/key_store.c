@@ -15,7 +15,7 @@ typedef struct {
 
 static key_entry_t table[KEY_STORE_MAX_ADDR + 1][KEY_STORE_NUM_DIRS];
 
-static int dir_index(key_direction_t dir, int *out)
+int key_direction_index(key_direction_t dir, int *out)
 {
     if (dir != DIR_MASTER_TO_SLAVE && dir != DIR_SLAVE_TO_MASTER && dir != DIR_BROADCAST) {
         return -1;
@@ -42,7 +42,7 @@ int key_store_lookup(uint8_t slave_addr, key_direction_t dir, directional_keys_t
 {
     int di;
 
-    if (slave_addr > KEY_STORE_MAX_ADDR || dir_index(dir, &di) != 0) {
+    if (slave_addr > KEY_STORE_MAX_ADDR || key_direction_index(dir, &di) != 0) {
         return -1;
     }
     if (!table[slave_addr][di].valid) {
@@ -57,7 +57,7 @@ int key_store_provision(uint8_t slave_addr, key_direction_t dir, const direction
 {
     int di;
 
-    if (slave_addr > KEY_STORE_MAX_ADDR || dir_index(dir, &di) != 0) {
+    if (slave_addr > KEY_STORE_MAX_ADDR || key_direction_index(dir, &di) != 0) {
         return -1;
     }
 
@@ -71,7 +71,7 @@ int key_store_get_initial_ctr(uint8_t slave_addr, key_direction_t dir, uint32_t 
 {
     int di;
 
-    if (slave_addr > KEY_STORE_MAX_ADDR || dir_index(dir, &di) != 0) {
+    if (slave_addr > KEY_STORE_MAX_ADDR || key_direction_index(dir, &di) != 0) {
         return -1;
     }
     if (!table[slave_addr][di].valid) {
@@ -122,7 +122,7 @@ int key_store_load_file(const char *path)
         }
         if (addr > KEY_STORE_MAX_ADDR || strlen(enc_tok) != KEY_SIZE ||
             strlen(mac_tok) != KEY_SIZE || parse_dir(dir_tok, &dir) != 0 ||
-            dir_index(dir, &di) != 0) {
+            key_direction_index(dir, &di) != 0) {
             continue;
         }
 

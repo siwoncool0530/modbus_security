@@ -19,6 +19,11 @@ typedef struct {
     uint8_t mac_key[KEY_SIZE];
 } directional_keys_t;
 
+/* key_direction_t를 0..2 테이블 인덱스로 매핑 -- key_store와 ctr_state 둘 다
+   (addr, dir) 테이블을 병렬로 색인하므로 이 매핑을 공유. 성공 시 0을 반환하고
+   out을 채우며, dir이 잘못된 값이면 -1을 반환. */
+int key_direction_index(key_direction_t dir, int *out);
+
 /* 주어진 방향에서 slave_addr에 대한 암호화/MAC 키 쌍을 조회.
    성공 시 0을 반환하고 out을 채우며, slave addr이 등록되어 있지 않으면 -1을 반환. */
 int key_store_lookup(uint8_t slave_addr, key_direction_t dir, directional_keys_t *out);

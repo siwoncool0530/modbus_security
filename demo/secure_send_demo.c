@@ -283,6 +283,11 @@ static int load_keys(const char *argv0)
         return loaded;
     }
 
+    loaded = key_store_load_file("keymgmt/keys.txt");
+    if (loaded > 0) {
+        return loaded;
+    }
+
     return key_store_load_file("security/keymgmt/keys.txt");
 }
 
@@ -306,7 +311,7 @@ int main(int argc, char **argv)
     loaded = load_keys(argv[0]);
     if (loaded <= 0) {
         log_summary("Could not load keys.txt (tried cwd, next to the "
-                     "executable, and security/keymgmt/keys.txt)\n");
+                     "executable, keymgmt/keys.txt, and security/keymgmt/keys.txt)\n");
         return 1;
     }
     log_summary("Loaded %d key entries\n", loaded);

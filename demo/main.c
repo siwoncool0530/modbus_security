@@ -64,7 +64,14 @@ static void print_hex(const char *label, const uint8_t *buf, size_t len)
 
 static void do_key_init(void)
 {
+    /* keymgmt/keys.txt is the only copy that exists now (bin/'s duplicate was
+       removed) -- these paths cover running the binary from the security/
+       repo root (where the Makefile actually builds it), from one level
+       above it, or from a subdirectory like demo/. */
     int loaded = key_store_load_file("keys.txt");
+    if (loaded <= 0) {
+        loaded = key_store_load_file("keymgmt/keys.txt");
+    }
     if (loaded <= 0) {
         loaded = key_store_load_file("security/keymgmt/keys.txt");
     }
@@ -72,7 +79,7 @@ static void do_key_init(void)
         loaded = key_store_load_file("../keymgmt/keys.txt");
     }
     if (loaded <= 0) {
-        printf("Could not load keys.txt (tried cwd, security/keymgmt/keys.txt, ../keymgmt/keys.txt)\n");
+        printf("Could not load keys.txt (tried cwd, keymgmt/keys.txt, security/keymgmt/keys.txt, ../keymgmt/keys.txt)\n");
         keys_loaded = 0;
         return;
     }

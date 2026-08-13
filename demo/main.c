@@ -579,55 +579,62 @@ static void do_env_config(void)
         }
     }
 
-    printf("Function code (1=Read Coils, 2=Read Discrete Inputs, 3=Read Holding Regs, "
-           "4=Read Input Regs, 5=Write Single Coil, 6=Write Single Reg, "
-           "15=Write Multiple Coils, 16=Write Multiple Regs) [current: %u (%s)]: ",
-           (unsigned int) config_func_code, modbus_func_name(config_func_code));
-    if (fgets(line, sizeof(line), stdin) != NULL) {
-        line[strcspn(line, "\r\n")] = '\0';
-        if (line[0] != '\0') {
-            long v = strtol(line, NULL, 10);
-            if (v >= 0 && v <= 255 && modbus_func_is_supported((uint8_t) v)) {
-                config_func_code = (uint8_t) v;
-            } else {
-                printf("Not one of the 8 supported function codes, keeping %u (%s)\n",
-                       (unsigned int) config_func_code, modbus_func_name(config_func_code));
+    if (is_master) {
+        printf("Function code (1=Read Coils, 2=Read Discrete Inputs, 3=Read Holding Regs, "
+            "4=Read Input Regs, 5=Write Single Coil, 6=Write Single Reg, "
+            "15=Write Multiple Coils, 16=Write Multiple Regs) [current: %u (%s)]: ",
+            (unsigned int) config_func_code, modbus_func_name(config_func_code));
+        if (fgets(line, sizeof(line), stdin) != NULL) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (line[0] != '\0') {
+                long v = strtol(line, NULL, 10);
+                if (v >= 0 && v <= 255 && modbus_func_is_supported((uint8_t) v)) {
+                    config_func_code = (uint8_t) v;
+                } else {
+                    printf("Not one of the 8 supported function codes, keeping %u (%s)\n",
+                        (unsigned int) config_func_code, modbus_func_name(config_func_code));
+                }
             }
         }
-    }
 
-    printf("Start address 0-65535 [current: %u]: ", (unsigned int) config_start_addr);
-    if (fgets(line, sizeof(line), stdin) != NULL) {
-        line[strcspn(line, "\r\n")] = '\0';
-        if (line[0] != '\0') {
-            long v = strtol(line, NULL, 10);
-            if (v >= 0 && v <= 65535) {
-                config_start_addr = (uint16_t) v;
-            } else {
-                printf("Out of range, keeping %u\n", (unsigned int) config_start_addr);
+        printf("Start address 0-65535 [current: %u]: ", (unsigned int) config_start_addr);
+        if (fgets(line, sizeof(line), stdin) != NULL) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (line[0] != '\0') {
+                long v = strtol(line, NULL, 10);
+                if (v >= 0 && v <= 65535) {
+                    config_start_addr = (uint16_t) v;
+                } else {
+                    printf("Out of range, keeping %u\n", (unsigned int) config_start_addr);
+                }
             }
         }
-    }
 
-    printf("%s [current: %u]: ", value_or_qty_label(config_func_code),
-           (unsigned int) config_value_or_qty);
-    if (fgets(line, sizeof(line), stdin) != NULL) {
-        line[strcspn(line, "\r\n")] = '\0';
-        if (line[0] != '\0') {
-            long v = strtol(line, NULL, 10);
-            if (v >= 0 && v <= 65535) {
-                config_value_or_qty = (uint16_t) v;
-            } else {
-                printf("Out of range, keeping %u\n", (unsigned int) config_value_or_qty);
+        printf("%s [current: %u]: ", value_or_qty_label(config_func_code),
+            (unsigned int) config_value_or_qty);
+        if (fgets(line, sizeof(line), stdin) != NULL) {
+            line[strcspn(line, "\r\n")] = '\0';
+            if (line[0] != '\0') {
+                long v = strtol(line, NULL, 10);
+                if (v >= 0 && v <= 65535) {
+                    config_value_or_qty = (uint16_t) v;
+                } else {
+                    printf("Out of range, keeping %u\n", (unsigned int) config_value_or_qty);
+                }
             }
         }
+    
+        printf("Config: port=%s baud=%ld slave_addr=%u func=0x%02X (%s) start_addr=%u value/qty=%u\n",
+            config_port[0] ? config_port : "(none, file fallback)", config_baud,
+            (unsigned int) config_slave_addr, (unsigned int) config_func_code,
+            modbus_func_name(config_func_code), (unsigned int) config_start_addr,
+            (unsigned int) config_value_or_qty);
+    } else {
+        printf("Config: port=%s baud=%ld slave_addr=%u\n",
+            config_port[0] ? config_port : "(none, file fallback)", config_baud,
+            (unsigned int) config_slave_addr);
     }
 
-    printf("Config: port=%s baud=%ld slave_addr=%u func=0x%02X (%s) start_addr=%u value/qty=%u\n",
-           config_port[0] ? config_port : "(none, file fallback)", config_baud,
-           (unsigned int) config_slave_addr, (unsigned int) config_func_code,
-           modbus_func_name(config_func_code), (unsigned int) config_start_addr,
-           (unsigned int) config_value_or_qty);
 }
 
 int main(int argc, char **argv)

@@ -13,6 +13,7 @@
 #include "../framing/secure_frame.h"
 #include "../keymgmt/key_store.h"
 #include "../keymgmt/ctr_state.h"
+#include "../modbus/modbus_pdu.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -86,26 +87,25 @@ static int receive_one_frame(serial_port_t *sp)
     log_detail("CRC OK\n");
     print_hex("Recovered PDU", pdu, pdu_len);
 
-    /* 요청을 검증/복호화했으니 슬레이브 입장에서 응답까지 회신 -- 실제 Modbus 0x10(Write
-       Multiple Registers)의 응답 형식은 함수코드+시작주소(2)+수량(2), 총 5바이트이며
-       요청 PDU의 앞 5바이트를 그대로 반사한 값과 동일함 (실제 레지스터 저장소가 없는
-       데모이므로 진짜로 "적었다"고 답하는 대신 요청을 그대로 반사). DIR_SLAVE_TO_MASTER
-       방향 키로 암호화해 같은 포트로 회신 -- 이제야 s2m 방향이 실제로 사용됨.
-       pdu_len이 5바이트 프리픽스보다 짧은 비정상 요청이면(함수코드가 다르거나
-       손상된 경우) 반사하지 않고 건너뜀. */
-    if (pdu_len >= 5) {
-        uint8_t reply_pdu[5];
+    /* 요청을 검증/복호화했으니 슬레이브 입장에서 실제 코일/레지스터 모델에 적용(쓰기)하거나
+       조회(읽기)해 정상 응답 또는 Modbus 예외 응답을 만든다 (modbus_pdu.c 참고).
+       DIR_SLAVE_TO_MASTER 방향 키로 암호화해 같은 포트로 회신 -- 이제야 s2m 방향이 실제로
+       사용됨. 함수 코드조차 알 수 없을 만큼 짧은 요청이면 회신을 생략. */
+    {
+        uint8_t reply_pdu[SECURE_FRAME_MAX_PDU];
+        size_t reply_pdu_len;
         uint8_t reply_wire[SECURE_FRAME_MAX_WIRE_LEN];
         size_t reply_wire_len;
 
-        memcpy(reply_pdu, pdu, sizeof(reply_pdu));
-
-        if (secure_frame_encrypt_and_build(addr,
-                                            reply_pdu,
-                                            sizeof(reply_pdu),
-                                            DIR_SLAVE_TO_MASTER,
-                                            reply_wire,
-                                            &reply_wire_len) != 0) {
+        if (!modbus_build_response(pdu, pdu_len, reply_pdu, &reply_pdu_len)) {
+            log_detail("Request too short to identify a function code (%u bytes) -- skipping reply\n",
+                       (unsigned int) pdu_len);
+        } else if (secure_frame_encrypt_and_build(addr,
+                                                    reply_pdu,
+                                                    reply_pdu_len,
+                                                    DIR_SLAVE_TO_MASTER,
+                                                    reply_wire,
+                                                    &reply_wire_len) != 0) {
             log_detail("reply: encrypt failed (no s2m key for slave %u?)\n", (unsigned int) addr);
         } else if (serial_port_write(sp, reply_wire, reply_wire_len) != 0) {
             log_detail("reply: write failed\n");
@@ -113,9 +113,6 @@ static int receive_one_frame(serial_port_t *sp)
             print_hex("Sent reply wire frame", reply_wire, reply_wire_len);
             log_detail("Reply sent (%u bytes)\n", (unsigned int) reply_wire_len);
         }
-    } else {
-        log_detail("Request PDU too short for a reply prefix (%u bytes) -- skipping reply\n",
-                   (unsigned int) pdu_len);
     }
 
     return 0;

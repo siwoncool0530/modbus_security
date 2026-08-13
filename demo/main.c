@@ -313,13 +313,15 @@ static void do_run_exchange(void)
    (/dev/ttyAMA0, COM 포트 등) 상태는 확인하지 못함 -- 하드웨어/배선 확인은 옵션 4로 포트를
    설정한 뒤 옵션 5(실행)로 해야 한다.
 
-   아래 두 체크가 서로 다른 테스트 주소(0xF0/0xF1)와 방향(m2s/s2m)을 쓰는 것은 ctr_state가
-   (addr, dir)별로 하나뿐인 프로세스 전역 카운터 테이블이기 때문이다. 같은 (addr, dir)에
-   대해 secure_frame_encrypt_and_build()를 부른 직후 secure_frame_verify_and_decrypt()를 또
-   부르면, 그 함수 내부의 ctr_state_next_outgoing()이 두 번째로 호출되어 이미 전진된 다음
-   카운터를 받아오게 되므로 복호화가 실패한다 (재현 방법: 옵션 3을 실제 함수 두 개로 같은
-   주소에 대해 연달아 부르면 두 번째 호출이 CRC mismatch로 실패한다). 서로 다른 (addr, dir)
-   슬롯을 쓰면 이 문제를 피하면서도 공개 함수를 그대로 검증할 수 있다. */
+   아래 두 체크가 같은 테스트 주소(0xF0)에 서로 다른 방향(m2s/s2m)을 쓰는 것은 key_store/
+   ctr_state 둘 다 table[addr][dir] 2차원 테이블이라 슬롯이 (addr, dir) 조합으로 정해지기
+   때문이다 -- addr과 dir이 둘 다 다를 필요는 없고, 둘 중 하나만 달라도 슬롯은 별개다. 같은
+   (addr, dir) 슬롯에 대해 secure_frame_encrypt_and_build()를 부른 직후
+   secure_frame_verify_and_decrypt()를 또 부르면, 그 함수 내부의 ctr_state_next_outgoing()이
+   두 번째로 호출되어 이미 전진된 다음 카운터를 받아오게 되므로 복호화가 실패한다 (재현 방법:
+   옵션 3을 실제 함수 두 개로 같은 (addr, dir)에 대해 연달아 부르면 두 번째 호출이 CRC
+   mismatch로 실패한다). 서로 다른 (addr, dir) 슬롯을 쓰면 이 문제를 피하면서도 공개 함수를
+   그대로 검증할 수 있다. */
 static void do_self_test(void)
 {
     int ok = 1;
@@ -401,11 +403,12 @@ static void do_self_test(void)
     /* --- decrypt-path check: 실제 secure_frame_verify_and_decrypt()를 호출해 검증하며,
        파일 왕복 테스트(마스터가 sent_frame.bin에 쓰고 슬레이브가 읽는 방식)로는 절대 닿지
        않는 DIR_SLAVE_TO_MASTER 방향까지 커버한다 (그 왕복은 항상 DIR_MASTER_TO_SLAVE만 씀).
-       0xF1/s2m은 위 encrypt-path 체크와 다른 (addr, dir) 슬롯이라 독립적으로 새 것이므로,
-       ctr_low=0으로 직접 만든 프레임을 실제 secure_frame_verify_and_decrypt()에 바로 넘겨도
-       안전하다 (그 함수의 첫 ctr_state_next_outgoing() 호출도 0을 반환하므로 서로 맞음). */
+       0xF0/s2m은 주소는 위 encrypt-path 체크(0xF0/m2s)와 같지만 방향이 달라 여전히 다른
+       (addr, dir) 슬롯이므로 독립적으로 새 것이고, ctr_low=0으로 직접 만든 프레임을 실제
+       secure_frame_verify_and_decrypt()에 바로 넘겨도 안전하다 (그 함수의 첫
+       ctr_state_next_outgoing() 호출도 0을 반환하므로 서로 맞음). */
     {
-        const uint8_t addr = 0xF1;
+        const uint8_t addr = 0xF0;
         directional_keys_t dk;
         uint8_t pdu[5] = {0x10, 0x00, 0x01, 0x00, 0x02}; /* write multiple registers, addr 1, qty 2 */
         uint8_t plaintext_adu[SECURE_FRAME_MAX_ADU];

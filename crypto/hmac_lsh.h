@@ -17,12 +17,4 @@ void hmac_lsh256(const uint8_t *key,
                   size_t msg_len,
                   uint8_t out[HMAC_LSH_FULL_SIZE]);
 
-/* 편의 래퍼: hmac_lsh256()을 계산한 뒤 프레임의 HMAC 필드 폭에 맞춰
-   HMAC_LSH_MAC_SIZE 바이트로 잘라낸다. */
-void hmac_lsh256_truncated(const uint8_t *key,
-                            size_t key_len,
-                            const uint8_t *msg,
-                            size_t msg_len,
-                            uint8_t out[HMAC_LSH_MAC_SIZE]);
-
 #endif /* SECURITY_CRYPTO_HMAC_LSH_H */

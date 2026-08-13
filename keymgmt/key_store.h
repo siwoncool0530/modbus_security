@@ -39,7 +39,7 @@ int key_store_provision(uint8_t slave_addr, key_direction_t dir, const direction
    불러온 항목 수를 반환하며, 파일을 열 수 없으면 -1을 반환. */
 int key_store_load_file(const char *path);
 
-/* slave_addr/dir의 키 자료와 함께 주어진 초기 CTR 값(key_store_load_file() 줄의 마지막 열)을 반환.
+/* slave_addr/dir의 키와 함께 주어진 초기 CTR 값(key_store_load_file() 줄의 마지막 열)을 반환.
    ctr_state가 처음 필요한 시점에 새 카운터를 시드하는 데 사용.
    성공 시 0을 반환하고 out을 채우며, 등록되어 있지 않으면 -1을 반환. */
 int key_store_get_initial_ctr(uint8_t slave_addr, key_direction_t dir, uint32_t *out);

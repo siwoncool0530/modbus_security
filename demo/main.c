@@ -451,7 +451,7 @@ static void do_self_test(void)
 
     /* 위 두 체크는 암호화/프레이밍만 검증하고 modbus_build_response() 내부의 함수 코드별
        분기(코일/레지스터 읽기·쓰기, 예외 처리)는 전혀 건드리지 않으므로 별도로 검증.
-       케이스 목록은 modbus/modbus_pdu_selftest.c 참고 (demo/test_modbus_response.c와 공유). */
+       케이스 목록은 modbus/modbus_pdu_selftest.c 참고. */
     ok = modbus_pdu_self_test() && ok;
 
     if (ok) {

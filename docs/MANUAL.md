@@ -505,7 +505,7 @@ if (modbus_build_response(pdu, pdu_len, resp, &resp_len)) {
 }
 ```
 
-이 표와 예제는 §6.3의 독립 테스트 하네스(`test_modbus_response.c`)로 22개 케이스 전수 검증됨.
+이 표와 예제는 §6.3의 `modbus_pdu_self_test()`(24개 케이스)로 전수 검증됨.
 
 ### 4.6 demo/ 공용 유틸리티
 
@@ -595,25 +595,17 @@ Self-test: ALL PASS
 
 **한계**: 포트가 없으면(`sp == NULL`) 슬레이브가 응답을 만들지 않으므로, 이 방법은 요청 방향(`DIR_MASTER_TO_SLAVE`)의 PDU 인코딩만 검증한다. 응답 생성(`modbus_build_response()`)은 이 방법으로 닿지 않으므로 §6.3으로 검증.
 
-### 6.3 modbus_pdu 단위 테스트 하네스
+### 6.3 modbus_pdu 단위 테스트 (`modbus_pdu_self_test()`)
 
-`modbus_build_response()`는 실제 포트가 있을 때만 호출되므로(§6.2의 한계), 이 함수만 따로 떼어 직접 호출하는 독립 테스트 프로그램으로 검증한다 — `secure_frame`/`ctr_state`/시리얼 포트 어느 것도 필요 없는 순수 함수이므로 가능하다.
+`modbus_build_response()`는 실제 포트가 있을 때만 호출되므로(§6.2의 한계), 이 함수만 따로 떼어 직접 호출하는 자체 테스트로 검증한다 — `secure_frame`/`ctr_state`/시리얼 포트 어느 것도 필요 없는 순수 함수이므로 가능하다. 테스트 케이스는 `modbus/modbus_pdu_selftest.c`의 `modbus_pdu_self_test()`에 있고, `secure_demo`의 옵션 3(단위 테스트, §6.1)이 호출한다 — 별도의 커맨드라인 바이너리는 없음.
 
-```c
-/* test_modbus_response.c 예시 골자 */
-#include "modbus_pdu.h"
-uint8_t resp[300]; size_t resp_len;
-uint8_t req[] = {0x03, 0x00, 0x00, 0x00, 0x02}; /* Read Holding Registers, addr 0, qty 2 */
-int rc = modbus_build_response(req, sizeof(req), resp, &resp_len);
-/* rc==1, resp == {0x03, 0x04, 0x10, 0x00, 0x10, 0x01} 확인 */
-```
+케이스마다 `[PASS]`/`[FAIL]`을 출력하고 마지막에 통과/실패 개수를 요약하며, 하나라도 실패하면 0을 반환한다(반환값은 `do_self_test()`의 `ok`에 반영돼 "Self-test: ALL PASS" 출력 여부를 결정). 24개 케이스가 다음을 덮는다:
 
-```bash
-gcc -Wall -Wextra -I modbus test_modbus_response.c modbus/modbus_pdu.c -o test_modbus_response
-./test_modbus_response
-```
+- §4.5의 8개 함수 코드 성공 경로 (쓰기 함수 4종은 쓰기 직후 같은 주소를 Read로 되짚어 응답 echo뿐 아니라 `coils[]`/`holding_registers[]`에 실제로 반영됐는지까지 확인)
+- 3가지 예외 코드(Illegal Function/Data Address/Data Value)를 각각 유발하는 입력
+- 경계 조건: 테이블 크기(128) 경계(`addr+qty`가 정확히 128 vs 129), 프로토콜 quantity 상한(레지스터 125 vs 126), 요청 길이 부족, 다중 쓰기의 `byte_count` 불일치
 
-검증해야 할 것: §4.5의 8개 함수 코드 성공 경로(쓰기 함수는 쓰기 직후 읽기로 반영 확인), 3가지 예외 코드(Illegal Function/Data Address/Data Value 각각을 유발하는 입력), 그리고 경계 조건(길이 0 요청 → 회신 없음, 함수 코드는 있지만 나머지가 짧은 요청 → 조용히 버리지 않고 예외로 응답).
+쓰기 성공 케이스는 코일은 addr 50, 레지스터는 addr 125를 써서 읽기 케이스가 쓰는 주소(코일/이산입력 0,1,126,127 / 홀딩레지스터 0..124)와 겹치지 않게 했다 — `modbus_pdu.c`의 코일/레지스터 테이블이 정적 전역이라 같은 프로세스에서 옵션 3을 여러 번 실행해도 이전 실행의 쓰기가 다음 실행의 읽기 기댓값을 깨지 않기 위함.
 
 ### 6.4 실제 장비(Pi) 검증 절차
 

@@ -10,12 +10,12 @@
 docs/      매뉴얼 및 참고 문헌
 crypto/    LEA, LSH/HMAC 원시 함수
 keymgmt/   키 테이블 + 방향별(m2s/s2m/bc) CTR 카운터 상태
-framing/   [addr|ciphertext|hmac] 와이어 프레임 구조
+framing/   [addr|ciphertext|hmac] 프레임 생성
 modbus/    PDU 내용물 (함수 코드, 코일/레지스터 데이터 모델, 예외 응답)
 demo/      실행 데모
 ```
 
-## 와이어 프레임 구조
+## 프레임 구조
 
 ```plaintext
 [addr(1)][ciphertext = LEA-CTR(addr + PDU + CRC16)][hmac(32)]
@@ -37,7 +37,7 @@ demo/      실행 데모
 | `lea_ref/` | LEA 라이브러리 |
 | `lsh_ref/` | LSH/HMAC 라이브러리 |
 
-### keymgmt/ — 키 테이블과 카운터 상태
+### keymgmt/ (키 테이블과 카운터 상태 관리)
 
 | 파일명 | 내용 |
 | --- | --- |
@@ -45,20 +45,20 @@ demo/      실행 데모
 | `ctr_state.h`/`ctr_state.c` | slave별/방향별 CTR 카운터 상태 관리 |
 | `keys.txt` | 테스트용 키 소스 파일 |
 
-### framing/ — 프레임 생성
+### framing/ (프레임 생성)
 
 | 파일명 | 내용 |
 | --- | --- |
 | `secure_frame.h`/`secure_frame.c` | `[addr\|ciphertext\|hmac]` 프레임 조립/파싱, 암호화+HMAC 결합(`encrypt_and_build`), 복호화+HMAC 검증 결합(`verify_and_decrypt`) |
 
-### modbus/ — Modbus PDU 로직
+### modbus/ (MODBUS PDU 로직)
 
 | 파일명 | 내용 |
 | --- | --- |
 | `modbus_pdu.h`/`modbus_pdu.c` | 함수 코드 8종의 요청/응답 PDU 조립, 데모용 코일/레지스터 데이터 모델, Modbus 예외 응답 |
 | `modbus_pdu_self_test.h`/`modbus_pdu_self_test.c` | 요청 PDU 기반 응답(예외 응답) PDU 정상 생성 여부 테스트 |
 
-### demo/ — 실행 가능한 도구와 공용 유틸리티
+### demo/ (실행 가능 데모, 공용 유틸리티)
 
 | 파일명 | 내용 |
 | --- | --- |

@@ -1,6 +1,6 @@
 # security 소스코드 사용 매뉴얼
 
-ver 1.0
+LEA-CTR 암호화와 LSH-HMAC 해시를 통한 MODBUS 프레임 종단간 암호화 프로그램 사용 매뉴얼 (2026.08)
 
 ## 차례
 
@@ -26,7 +26,7 @@ ver 1.0
 
 ### 계층 구조
 
-```
+```plaintext
 crypto/    LEA, LSH/HMAC 원시 함수 (얇은 래퍼만 이 문서에서 다룸, §4.1)
 keymgmt/   키 테이블 + 방향별(m2s/s2m/bc) CTR 카운터 상태
 framing/   [addr|ciphertext|hmac] 와이어 프레임 구조 -- 내용물(PDU)이 뭔지는 모름
@@ -38,7 +38,7 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 
 ### 와이어 프레임 구조
 
-```
+```plaintext
 [addr(1)][ciphertext = LEA-CTR(addr + PDU + CRC16)][hmac(32)]
 ```
 
@@ -57,7 +57,7 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 ### 보안 상 제약사항
 
 - **재전송(replay) 방지 미적용**: `ctr_state_validate_incoming()`(§4.3)이 재전송 탐지 로직을 구현하고 있지만, 코드 전체에서 실제로 호출되는 곳이 없다. 현재 수신측은 "다음에 올 프레임은 다음 카운터를 쓸 것"이라 가정하고 복호화 시도. 실제 환경에서는 재전송 시 탐지 로직이 필요하다.
-- **HMAC 비교가 상수 시간이 아님**: `secure_frame.c`가 `memcmp()`로 HMAC을 비교해 O(N).
+- **HMAC 비교가 상수 시간이 아님**: `secure_frame.c`가 `memcmp()`로 HMAC을 비교해 시간복잡도 O(N).
 - **카운터 손실 가능**: `ctr_state_persist()`는 매 호출마다 파일을 단순 재작성(임시파일에 쓰고 rename하는 방식이 아님). 기록 도중 전원이 끊기면 카운터 파일이 손상될 수 있어 실제 트래픽 처리 전에 재검토 필요.
 - **`modbus/`의 데이터 모델은 데모용**: 코일/레지스터 128개 고정 크기 배열이며 실제 슬레이브 장비의 레지스터 맵을 반영하지 않는다.
 
@@ -68,7 +68,7 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 ### crypto/ (LEA, LSH 원본 및 참조 함수)
 
 | 파일명 | 내용 |
-|---|---|
+| --- | --- |
 | `lea.h`/`lea.c` | LEA 키 스케줄 생성 (`lea_key_schedule`) |
 | `lea_ctr.h`/`lea_ctr.c` | LEA-CTR 암/복호화 담당 |
 | `hmac_lsh.h`/`hmac_lsh.c` | HMAC-LSH256 담당 |
@@ -78,7 +78,7 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 ### keymgmt/ — 키 테이블과 카운터 상태
 
 | 파일명 | 내용 |
-|---|---|
+| --- | --- |
 | `key_store.h`/`key_store.c` | slave별/방향별 암호화·MAC 키 테이블, `keys.txt` 로더 |
 | `ctr_state.h`/`ctr_state.c` | slave별/방향별 CTR 카운터 상태 관리 |
 | `keys.txt` | 테스트용 키 소스 파일 |
@@ -86,19 +86,20 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 ### framing/ — 프레임 생성
 
 | 파일명 | 내용 |
-|---|---|
+| --- | --- |
 | `secure_frame.h`/`secure_frame.c` | `[addr\|ciphertext\|hmac]` 프레임 조립/파싱, 암호화+HMAC 결합(`encrypt_and_build`), 복호화+HMAC 검증 결합(`verify_and_decrypt`) |
 
 ### modbus/ — Modbus PDU 로직
 
 | 파일명 | 내용 |
-|---|---|
+| --- | --- |
 | `modbus_pdu.h`/`modbus_pdu.c` | 함수 코드 8종의 요청/응답 PDU 조립, 데모용 코일/레지스터 데이터 모델, Modbus 예외 응답 |
+| `modbus_pdu_selftest.h`/`modbus_pdu_selftest.c` | 요청 PDU 기반 응답(정상/예외 응답) PDU 정상 생성 여부를 검증하는 자체 테스트 (§6.1에서 `secure_demo` 옵션 3이 호출) |
 
 ### demo/ — 실행 가능한 도구와 공용 유틸리티
 
 | 파일명 | 내용 |
-|---|---|
+| --- | --- |
 | `main.c` | 프로토타입(`secure_demo`) -- 마스터/슬레이브 모드, 키 초기화, 셀프 테스트, 환경 설정, 실행 |
 | `secure_send_demo.c` | 프레임 송신 데모(`secure_send_demo`) -- 1~123개의 레지스터로 프레임 크기를 달리하여 프레이밍 스트레스 테스트 |
 | `secure_recv_demo.c` | 프레임 수신 데모(`secure_recv_demo`) -- 실제 하드웨어로 왕복 검증 |
@@ -113,7 +114,7 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 
 ### Makefile 대상
 
-```
+```bash
 make            # secure_send_demo, secure_recv_demo, secure_demo 세 개 모두 빌드
 make clean      # 빌드 산출물 정리
 make NO_NEON=1  # NEON 대신 일반 C 경로로 빌드
@@ -122,12 +123,12 @@ make NO_NEON=1  # NEON 대신 일반 C 경로로 빌드
 ### 아키텍처 자동 감지 (`ARCH := $(shell uname -m)`)
 
 | ARCH | LEA SIMD 백엔드 | 비고 |
-|---|---|---|
+| --- | --- | --- |
 | `aarch64` | NEON (`NO_NEON=1`이면 일반 C) | 실제 타겟(Raspberry Pi 5 / CM5) |
 | `armv7l` | NEON (`NO_NEON=1`이면 일반 C) | |
 | 그 외(x86_64 등) | 일반 C만 (SIMD 없음) | Windows 등에서 개발용 빌드 |
 
-### `make`가 없는 환경(예: Windows)의 수동 빌드
+### `make`가 없는 환경의 수동 빌드
 
 ```bash
 gcc -O2 -Wall -DNO_AVX2 -DNO_XOP -DNO_PCLMUL -DNO_SSE2 \
@@ -138,7 +139,7 @@ gcc -O2 -Wall -DNO_AVX2 -DNO_XOP -DNO_PCLMUL -DNO_SSE2 \
   crypto/lea_ref/lea_base.c crypto/lea_ref/lea_core.c crypto/lea_ref/lea_online.c \
   crypto/lea_ref/lea_gcm_generic.c crypto/lea_ref/lea_t_fallback.c crypto/lea_ref/lea_t_generic.c \
   crypto/lea_ref/cpu_info_ia32.c \
-  demo/serial_port.c demo/key_paths.c modbus/modbus_pdu.c \
+  demo/serial_port.c demo/key_paths.c modbus/modbus_pdu.c modbus/modbus_pdu_selftest.c \
   -o secure_demo.exe -lws2_32
 ```
 
@@ -149,7 +150,7 @@ gcc -O2 -Wall -DNO_AVX2 -DNO_XOP -DNO_PCLMUL -DNO_SSE2 \
 세 실행 파일은 공통 오브젝트(`$(LIB_OBJS)`: `framing/`+`keymgmt/`+`crypto/`+`demo/serial_port.c`+`demo/key_paths.c`)를 공유:
 
 | 실행 파일 | `$(LIB_OBJS)` | `demo_log.o` | `modbus_pdu.o` |
-|---|:---:|:---:|:---:|
+| --- | :---: | :---: | :---: |
 | `secure_demo` (main.c) | ✅ | ❌ (`print_hex` 사용) | ✅ (마스터=요청 생성, 슬레이브=응답 생성) |
 | `secure_send_demo` | ✅ | ✅ | ❌ (슬레이브 역할 없음, 고정 함수 0x10 스윕만 함) |
 | `secure_recv_demo` | ✅ | ✅ | ✅ (슬레이브=응답 생성) |
@@ -363,9 +364,10 @@ secure_frame_status_t secure_frame_verify_and_decrypt(
 **매개변수**: `wire`/`wire_len` [in] 수신 바이트, `expected_addr` [in] 주소 필터(**기본값 성격의 값 `SECURE_FRAME_ANY_ADDR`(0xFF)을 넘기면 필터를 건너뜀** — RS-485처럼 여러 슬레이브가 한 버스에 있을 때만 실제 주소를 넘기고, 그 외엔 이 값을 쓰면 됨), `dir` [in], `out_addr` [out] 파싱된 주소(파싱에 성공하면 상태 코드와 무관하게 항상 채워짐), `out_ciphertext_len`/`out_crc_calc`/`out_crc_recv` [out, 선택 — NULL 허용] 진단 메시지용 세부값, `out_pdu`/`out_pdu_len` [out] 복호화된 순수 PDU(호출자가 최소 `SECURE_FRAME_MAX_PDU`(253)바이트로 준비).\
 **설명**: `secure_frame_encrypt_and_build()`의 역방향. 파싱 → (필요 시) 주소 검사 → 키 조회 → HMAC 검증 → LEA-CTR 복호화 → CRC16 검증 순으로 처리. `SECURE_FRAME_OK`(0)를 반환하면 `out_pdu`/`out_pdu_len`이 유효.\
 **동작/경계 조건**:
-- HMAC 비교는 `memcmp()`로 이루어짐 — 상수 시간 비교가 아니므로 §1의 "알려진 제한사항" 참고.
+
+- HMAC 비교는 `memcmp()`로 이루어짐 — 상수 시간 비교가 아니므로 §1의 "보안 상 제약사항" 참고.
 - `SECURE_FRAME_ERR_CRC`는 대개 "HMAC은 맞는데 복호화 결과가 깨짐" = **카운터가 어긋났다는 신호** — 키가 틀렸다면 HMAC 단계에서 먼저 걸러지므로, CRC까지 통과 못 했다는 건 인증은 됐지만 잘못된 카운터로 복호화했다는 뜻.
-- 내부적으로 `ctr_state_next_outgoing()`을 호출하므로(§4.3 참고), **같은 (addr, dir)로 이 함수를 두 번 연달아 부르면 두 번째 호출은 실패한다** — `secure_frame_encrypt_and_build()`로 막 만든 프레임을 같은 프로세스에서 바로 이 함수로 복호화해보는 건 안 된다(§6.1 셀프 테스트가 이 문제를 피해가는 방법을 그대로 보여줌).
+- 내부적으로 `ctr_state_next_outgoing()`을 호출하므로(§4.3 참고), **같은 (addr, dir)로 이 함수를 두 번 연달아 부르면 두 번째 호출은 실패한다** — `secure_frame_encrypt_and_build()`로 막 만든 프레임을 같은 프로세스에서 바로 이 함수로 복호화해보는 건 안 된다(§6.1 단위 테스트가 이 문제를 피해가는 방법을 그대로 보여줌).
 
 ```c
 uint8_t addr, pdu[SECURE_FRAME_MAX_PDU];
@@ -391,12 +393,12 @@ default:
 `secure_frame_status_t` 값:
 
 | 값 | 의미 |
-|---|---|
+| --- | --- |
 | `SECURE_FRAME_OK` (0) | 성공 |
-| `SECURE_FRAME_ERR_MALFORMED` (-1) | addr+hmac을 담기에도 부족한 길이 -- `out_addr` 등은 채워지지 않음 |
-| `SECURE_FRAME_ERR_WRONG_ADDR` (-2) | `expected_addr`을 지정했는데 `frame.addr`이 다름 -- `out_addr`엔 실제 프레임 주소가 채워짐 |
+| `SECURE_FRAME_ERR_MALFORMED` (-1) | addr+hmac을 담기에도 부족한 길이 - `out_addr` 등은 채워지지 않음 |
+| `SECURE_FRAME_ERR_WRONG_ADDR` (-2) | `expected_addr`을 지정했는데 `frame.addr`이 다름 - `out_addr`엔 실제 프레임 주소가 채워짐 |
 | `SECURE_FRAME_ERR_NO_KEY` (-3) | `key_store`에 등록된 키 없음 |
-| `SECURE_FRAME_ERR_HMAC` (-4) | HMAC 불일치 -- 잘못된 키이거나 프레임이 변조됨 |
+| `SECURE_FRAME_ERR_HMAC` (-4) | HMAC 불일치 - 잘못된 키이거나 프레임이 변조됨 |
 | `SECURE_FRAME_ERR_CRC` (-5) | 복호화 후 CRC16 불일치 (카운터 어긋남 의심, 위 참고) |
 
 #### secure_frame_crc16
@@ -413,7 +415,7 @@ uint16_t secure_frame_crc16(const uint8_t *buf, size_t len);
 지원 함수 코드 8종:
 
 | 코드 | 이름 | 요청 PDU(함수코드 제외) | 응답 PDU(함수코드 제외) | `value_or_qty` 의미 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | 0x01 | Read Coils | addr(2)+qty(2) | byte_count(1)+data | 읽을 개수 |
 | 0x02 | Read Discrete Inputs | addr(2)+qty(2) | byte_count(1)+data | 읽을 개수 |
 | 0x03 | Read Holding Registers | addr(2)+qty(2) | byte_count(1)+data(2×qty) | 읽을 개수 |
@@ -428,7 +430,7 @@ uint16_t secure_frame_crc16(const uint8_t *buf, size_t len);
 Modbus 예외 응답(`함수코드|0x80` + 예외코드):
 
 | 예외 코드 | 이름 | 발생 조건 |
-|---|---|---|
+| --- | --- | --- |
 | 0x01 | Illegal Function | 함수 코드가 위 8종 밖 |
 | 0x02 | Illegal Data Address | 주소(+수량)가 128개 데모 테이블 범위를 벗어남 |
 | 0x03 | Illegal Data Value | 요청 길이가 그 함수 코드의 최소 필드보다 짧음 / quantity가 0이거나 프로토콜 상한 초과 / byte_count가 quantity와 안 맞음 / 코일 값이 0x0000·0xFF00이 아님 |
@@ -476,14 +478,13 @@ int modbus_build_response(const uint8_t *req_pdu, size_t req_len,
 **예외가 발생하는 정확한 조건** (`modbus_pdu.c`의 실제 검사 순서):
 
 | 예외 | 발생 조건 (해당 함수 코드에서) |
-|---|---|
+| --- | --- |
 | Illegal Data Value (0x03) | `req_len`이 그 함수의 최소 길이(읽기 5바이트, 단일 쓰기 5바이트, 다중 쓰기는 byte_count 포함 최소 6바이트)보다 짧음 |
 | Illegal Data Value (0x03) | `qty`가 0이거나 `MODBUS_MAX_READ_BITS`/`MODBUS_MAX_WRITE_BITS`/`MODBUS_MAX_READ_REGISTERS`/`MODBUS_MAX_WRITE_REGISTERS` 상한 초과 |
 | Illegal Data Value (0x03) | 다중 쓰기(0x0F/0x10)에서 요청에 실려온 `byte_count`가 `qty`로부터 계산한 기대값과 다름 |
 | Illegal Data Value (0x03) | 단일 코일 쓰기(0x05)에서 값이 `0x0000`도 `0xFF00`도 아님 |
 | Illegal Data Address (0x02) | `(uint32_t)addr + qty > MODBUS_TABLE_SIZE`(128) — `addr`/`qty`가 각각 `uint16_t`라 오버플로 없이 32비트로 안전하게 더해 비교 |
-| Illegal Function (0x01) | 함수 코드가 위 8종 어디에도 속하지 않음 (`default` 분기)
-
+| Illegal Function (0x01) | 함수 코드가 위 8종 어디에도 속하지 않음 (`default` 분기) |
 
 **성공 시 응답 형태**: 단일 코일/레지스터 쓰기(0x05/0x06) 성공은 요청 5바이트를 그대로 `memcpy`한 반사(echo) 응답이고, 다중 쓰기(0x0F/0x10) 성공은 수신 데이터를 반영하지 않고 `func+addr+qty` 5바이트만 새로 조립한 응답이다 — 두 경우 모두 표준 Modbus 사양과 일치.
 
@@ -505,12 +506,12 @@ if (modbus_build_response(pdu, pdu_len, resp, &resp_len)) {
 }
 ```
 
-이 표와 예제는 §6.3의 `modbus_pdu_self_test()`(24개 케이스)로 전수 검증됨.
+이 표와 예제는 §6.1의 `modbus_pdu_self_test()`(24개 케이스)로 전수 검증됨.
 
 ### 4.6 demo/ 공용 유틸리티
 
 | 함수 | 매개변수 | 설명 |
-|---|---|---|
+| --- | --- | --- |
 | `void exe_relative_path(const char *argv0, const char *filename, char *out, size_t out_size)` | argv0 [in], filename [in], out [out], out_size [in] | `"<argv0 디렉터리>/filename"` 문자열 조립. `keys.txt`/카운터 파일/로그 파일을 실행 파일 위치에 고정하는 데 사용 |
 | `int demo_load_keys(const char *argv0)` | argv0 [in, NULL 허용] | `keys.txt`를 5가지 후보 경로로 순서대로 탐색해 로드 (cwd → 실행파일 옆 → `keymgmt/keys.txt` → `security/keymgmt/keys.txt` → `../keymgmt/keys.txt`). 불러온 항목 수(>0) 또는 실패 시 <=0 반환 |
 | `long modbus_t35_us(long baud)` | baud [in] | Modbus RTU 스펙의 T3.5 유휴 간격을 마이크로초 단위로 계산 (실측 기반 20ms 최솟값 포함) |
@@ -544,7 +545,7 @@ serial_port_open(&sp, argv[1], baud, (int) modbus_t35_us(baud));
 
 ### 5.1 secure_demo (main.c)
 
-```
+```plaintext
 1. 마스터/슬레이브 모드 전환
 2. 키 초기화
 3. 단위 테스트
@@ -555,13 +556,13 @@ serial_port_open(&sp, argv[1], baud, (int) modbus_t35_us(baud));
 
 - **1. 모드 전환**: `is_master` 플래그를 뒤집음.
 - **2. 키 초기화**: `demo_load_keys()`로 `keys.txt` 로드.
-- **3. 단위 테스트**: §6.1 참고.
+- **3. 단위 테스트**: 포트에 실제로 연결하지 않고 암호화/프레이밍 로직과 `modbus_build_response()`의 함수 코드별 분기까지 한 번에 검증. §6.1 참고.
 - **4. 환경 설정**: 포트(빈 값=현재 유지, `-`=포트 없음/파일 폴백) → baud → slave 주소(마스터일 땐 보낼 대상, 슬레이브일 땐 자신의 주소) → 함수 코드(1/2/3/4/5/6/15/16 중 하나) → 시작 주소 → `value_or_qty`(함수 코드에 따라 라벨이 바뀜 — §4.5 표 참고).
 - **5. 실행**: 마스터면 §4.5의 함수 코드로 요청을 만들어 암호화 후 전송(포트 미설정 시 `sent_frame.bin`에 기록). 슬레이브면 수신 프레임을 검증/복호화하고, 실제 포트가 있으면 응답까지 암호화해 회신(포트 없이 파일로 읽은 경우는 검증/복호화만).
 
 ### 5.2 secure_send_demo / secure_recv_demo
 
-```
+```bash
 secure_send_demo [port] [baud] [count]     # 포트 생략 시 sent_frame.bin에 기록
 secure_recv_demo port [baud] [count]       # 포트 필수
 ```
@@ -572,61 +573,110 @@ secure_recv_demo port [baud] [count]       # 포트 필수
 
 ## 6. 테스트 방법
 
-### 6.1 셀프 테스트 (옵션 3, `do_self_test()`)
+### 6.1 단위 테스트 (secure_demo 옵션 3, `do_self_test()`)
 
-하드웨어 없이 한 프로세스 안에서 공개 API를 직접 호출해 검증하는 두 개의 체크로 구성:
+하드웨어 없이 한 프로세스 안에서 공개 API를 직접 호출해 검증하는 세 개의 체크로 구성:
 
 - **encrypt-path 체크** (테스트 주소 `0xF0`, `DIR_MASTER_TO_SLAVE`): `secure_frame_encrypt_and_build()`를 호출한 뒤, 알고 있는 `ctr_low=0`으로 직접 HMAC/복호화/CRC를 검증.
 - **decrypt-path 체크** (테스트 주소 `0xF0`, `DIR_SLAVE_TO_MASTER`): `ctr_low=0`으로 직접 만든 프레임을 `secure_frame_verify_and_decrypt()`에 넘겨 검증.
+- **`modbus_build_response()` 체크**: Modbus 요청에 따라 정상 및 예외 응답을 제대로 생성하는지 검증 (`modbus_pdu_self_test()`, §4.5·§2 `modbus_pdu_selftest.c` 참고). §4.5의 8개 함수 코드 성공 경로(쓰기 4종은 쓰기 직후 같은 주소를 읽어 `coils[]`/`holding_registers[]`에 실제로 반영됐는지까지 확인), 3가지 예외 코드(Illegal Function/Data Address/Data Value), 그리고 경계 조건(테이블 크기 128 경계, 프로토콜 quantity 상한, 요청 길이 부족, 다중 쓰기 `byte_count` 불일치)까지 총 24개 케이스를 덮는다.
 
 실행: `secure_demo` 실행 후 `3` 입력. 기대 출력:
-```
+
+```bash
+Running crypto logic self-test (no serial port involved)...
 PASS (encrypt path): secure_frame_encrypt_and_build -> parse -> HMAC verify -> decrypt -> CRC check OK (5 byte PDU, 41 byte wire frame)
 PASS (decrypt path): hand-built frame -> secure_frame_verify_and_decrypt OK (5 byte PDU, 41 byte wire frame)
+[PASS] 0x01 Read Coils success
+[PASS] 0x02 Read Discrete Inputs success
+[PASS] 0x03 Read Holding Registers success
+[PASS] 0x04 Read Input Registers success
+[PASS] boundary: addr+qty == table size (128) succeeds
+[PASS] boundary: addr+qty == table size+1 (129) -> Illegal Data Address
+[PASS] boundary: qty == protocol max (125) succeeds
+[PASS] boundary: qty == protocol max+1 (126) -> Illegal Data Value
+[PASS] boundary: req_len < 5 -> Illegal Data Value
+[PASS] exception: qty=0 -> Illegal Data Value
+[PASS] exception: addr+qty > table size -> Illegal Data Address
+[PASS] exception: unsupported function code -> Illegal Function
+[PASS] boundary: Write Single Coil invalid value -> Illegal Data Value
+[PASS] boundary: Write Multiple Coils byte_count mismatch -> Illegal Data Value
+[PASS] boundary: Write Multiple Registers byte_count mismatch -> Illegal Data Value
+[PASS] boundary: Write Multiple Coils addr+qty overflow -> Illegal Data Address
+[PASS] 0x05 Write Single Coil success
+[PASS] 0x05 Write Single Coil actually persisted (read-back)
+[PASS] 0x06 Write Single Register success
+[PASS] 0x06 Write Single Register actually persisted (read-back)
+[PASS] 0x0F Write Multiple Coils success
+[PASS] 0x0F Write Multiple Coils actually persisted (read-back)
+[PASS] 0x10 Write Multiple Registers success
+[PASS] 0x10 Write Multiple Registers actually persisted (read-back)
+24 passed, 0 failed (24 total)
 Self-test: ALL PASS
 ```
+
 같은 프로세스 안에서 여러 번 실행해도(옵션 3을 반복 선택) 매번 PASS해야 정상.
 
 ### 6.2 파일 왕복 테스트 (하드웨어 불필요)
 
 포트를 설정하지 않은 상태에서:
+
 1. 마스터로 `2`(키 초기화) → `4`(환경 설정, 원하는 함수 코드/주소/수량 입력) → `5`(실행) — `sent_frame.bin`에 씀.
 2. 새 프로세스(또는 `1`로 모드 전환)에서 `2` → `5`(실행) — `sent_frame.bin`을 읽어 검증/복호화. `Recovered PDU`가 §4.5 표대로 나오는지 확인.
 
-**한계**: 포트가 없으면(`sp == NULL`) 슬레이브가 응답을 만들지 않으므로, 이 방법은 요청 방향(`DIR_MASTER_TO_SLAVE`)의 PDU 인코딩만 검증한다. 응답 생성(`modbus_build_response()`)은 이 방법으로 닿지 않으므로 §6.3으로 검증.
+**한계**: 포트가 없으면(`sp == NULL`) 슬레이브가 응답을 만들지 않으므로, 이 방법은 요청 방향(`DIR_MASTER_TO_SLAVE`)의 PDU 인코딩만 검증한다. 응답 생성(`modbus_build_response()`)은 이 방법으로 닿지 않으므로 §6.1의 단위 테스트로 검증한다.
 
-### 6.3 modbus_pdu 단위 테스트 (`modbus_pdu_self_test()`)
+### 6.3 실제 장비(Pi) 검증 절차
 
-`modbus_build_response()`는 실제 포트가 있을 때만 호출되므로(§6.2의 한계), 이 함수만 따로 떼어 직접 호출하는 자체 테스트로 검증한다 — `secure_frame`/`ctr_state`/시리얼 포트 어느 것도 필요 없는 순수 함수이므로 가능하다. 테스트 케이스는 `modbus/modbus_pdu_selftest.c`의 `modbus_pdu_self_test()`에 있고, `secure_demo`의 옵션 3(단위 테스트, §6.1)이 호출한다 — 별도의 커맨드라인 바이너리는 없음.
+SSH 연결이 되어있는 CM5 기기에서 검증하려면 git으로 소스를 clone해 빌드한다.
 
-케이스마다 `[PASS]`/`[FAIL]`을 출력하고 마지막에 통과/실패 개수를 요약하며, 하나라도 실패하면 0을 반환한다(반환값은 `do_self_test()`의 `ok`에 반영돼 "Self-test: ALL PASS" 출력 여부를 결정). 24개 케이스가 다음을 덮는다:
-
-- §4.5의 8개 함수 코드 성공 경로 (쓰기 함수 4종은 쓰기 직후 같은 주소를 Read로 되짚어 응답 echo뿐 아니라 `coils[]`/`holding_registers[]`에 실제로 반영됐는지까지 확인)
-- 3가지 예외 코드(Illegal Function/Data Address/Data Value)를 각각 유발하는 입력
-- 경계 조건: 테이블 크기(128) 경계(`addr+qty`가 정확히 128 vs 129), 프로토콜 quantity 상한(레지스터 125 vs 126), 요청 길이 부족, 다중 쓰기의 `byte_count` 불일치
-
-쓰기 성공 케이스는 코일은 addr 50, 레지스터는 addr 125를 써서 읽기 케이스가 쓰는 주소(코일/이산입력 0,1,126,127 / 홀딩레지스터 0..124)와 겹치지 않게 했다 — `modbus_pdu.c`의 코일/레지스터 테이블이 정적 전역이라 같은 프로세스에서 옵션 3을 여러 번 실행해도 이전 실행의 쓰기가 다음 실행의 읽기 기댓값을 깨지 않기 위함.
-
-### 6.4 실제 장비(Pi) 검증 절차
-
-라이브 배포본을 건드리지 않고 실제 aarch64/NEON 타겟에서 검증하려면 별도 스크래치 디렉터리에 소스를 복사해 빌드한다:
+**최초 설치**:
 
 ```bash
-ssh <host> "mkdir -p ~/security_test"
-git archive <branch-or-main> | ssh <host> "tar -x -C ~/security_test"
-scp keymgmt/keys.txt <host>:~/security_test/keymgmt/keys.txt   # keys.txt는 .gitignore 대상이라 git archive에 안 들어감
-ssh <host> "cd ~/security_test && make clean && make all"
-ssh <host> "cd ~/security_test && printf '2\n3\n6\n' | ./secure_demo"   # 셀프 테스트
+ssh <pi-host>
+git clone https://github.com/siwoncool0530/modbus_security.git ~/security
+cd ~/security
+git checkout main
 ```
-확인 후: `ssh <host> "rm -rf ~/security_test"`로 정리.
 
-### 6.5 회귀 체크리스트
+`keys.txt`는 `.gitignore` 대상이라 clone에 안 들어오므로 필요 시 별도로 옮겨야 한다(개발 머신에서):
 
-- [ ] 셀프 테스트(옵션 3) 여러 번 연속 실행 시 매번 `ALL PASS`
+```bash
+scp keymgmt/keys.txt <pi-host>:~/security/keymgmt/keys.txt
+```
+
+빌드 (Pi는 aarch64라 Makefile이 자동으로 NEON 백엔드 선택):
+
+```bash
+make            # secure_send_demo, secure_recv_demo, secure_demo 모두 빌드
+# NEON 관련 문제 있으면: make clean && make NO_NEON=1
+```
+
+실행:
+
+```bash
+./secure_demo          # 대화형 (마스터/슬레이브, 셀프테스트 등)
+./secure_recv_demo /dev/ttyAMA0 115200
+```
+
+**이후 업데이트 필요 시**:
+
+```bash
+cd ~/security
+git pull origin main
+make clean && make
+```
+
+- `git remote -v`로 origin이 실제로 설정됐는지 먼저 확인 (clone했다면 자동으로 설정됨, 새로 `git remote add origin ...`을 할 필요는 없음).
+- `keys.txt`, `ctr_state*.dat` 둘 다 `.gitignore` 대상이라 `git pull`로 덮어써지지 않는다 — 카운터 상태와 로컬 키 편집분 모두 안전.
+- 로컬에 커밋 안 된 변경사항이 있으면 `git pull`이 충돌할 수 있으니, 그 전에 `git status`로 확인 권장.
+
+### 6.4 체크리스트
+
+- [ ] 단위 테스트(옵션 3) 여러 번 연속 실행 시 매번 `ALL PASS`
 - [ ] 슬레이브 주소를 프레임과 다르게 설정하면 `Frame addressed to slave X, not us (configured as Y) -- ignoring`로 무시됨
 - [ ] §4.5의 8개 함수 코드 모두 `환경 설정` → `실행`으로 요청 PDU가 표대로 만들어짐 (§6.2)
-- [ ] `modbus_pdu` 하네스(§6.3)에서 8개 함수 코드 성공 경로 + 3개 예외 코드 + 경계 조건 전부 PASS
-- [ ] Pi에서 위 항목들을 다시 실행해도 동일하게 PASS (§6.4)
+- [ ] Pi에서 위 항목들을 다시 실행해도 동일하게 PASS (§6.3)
 
 ---
 

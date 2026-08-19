@@ -11,12 +11,12 @@
    새 메시지마다 한 번씩만 호출 — 같은 메시지를 재전송할 때는 이 함수를 다시 호출해서는 안됨.
    msg_len은 이 카운터로 암호화될 평문 ADU의 바이트 길이 (lea_ctr_crypt에 넘길 len과 동일).
    LEA-CTR은 16바이트 블록마다 카운터를 1씩 증가시키므로, 반환값부터
-   ceil(msg_len/16)개의 연속된 카운터 값이 이번 메시지에서 소비됨 -- 그만큼을 예약해
-   다음 메시지가 그 범위와 겹치지 않도록 함. (msg_len 대신 매번 1만 증가시키면 16바이트를
-   넘는 메시지의 뒤쪽 블록이 다음 메시지의 카운터와 겹쳐 키스트림이 재사용됨.) */
+   ceil(msg_len/16)개의 연속된 카운터 값이 이번 메시지에서 소비됨 - 그만큼을 예약해
+   다음 메시지가 그 범위와 겹치지 않도록 함. */
 uint32_t ctr_state_next_outgoing(uint8_t slave_addr, key_direction_t dir, size_t msg_len);
 
-/* (slave_addr, dir)에 대해 수신 카운터 값을 검증:
+/* 현재 사용되지 않음.
+   (slave_addr, dir)에 대해 수신 카운터 값을 검증:
    - ctr < highest_accepted 이면 거부 (재전송 공격)
    - ctr == highest_accepted 이면 허용 (정상적인 재시도이며, 호출자는 새 메시지로 취급하지 말고 재처리 필요)
    - ctr > highest_accepted 이면 허용하고 저장된 상한값을 갱신
@@ -36,9 +36,9 @@ int ctr_state_load(void);
 /* ctr_state_load()/ctr_state_persist()가 현재 디렉터리의 기본값인 "ctr_state.dat" 대신 특정 파일을 사용하도록 지정 */
 void ctr_state_set_path(const char *path);
 
-/* (slave_addr, dir)의 카운터 상태를 지워 처음 상태로 되돌림 -- 다음 ctr_state_next_outgoing()/
+/* (slave_addr, dir)의 카운터 상태를 지워 처음 상태로 되돌림 - 다음 ctr_state_next_outgoing()/
    ctr_state_validate_incoming() 호출이 key_store의 initial_ctr부터 다시 시작하도록 함.
-   재커미셔닝(같은 주소를 새 키로 다시 페어링)이나, 같은 프로세스 안에서 같은 (addr, dir)로
+   같은 주소를 새 키로 다시 변경하거나, 같은 프로세스 안에서 같은 (addr, dir)로
    반복 테스트할 때(예: 자체 테스트를 여러 번 실행) 이전 실행의 카운터 잔재로 어긋나는 것을 막는 데 사용. */
 void ctr_state_reset(uint8_t slave_addr, key_direction_t dir);
 

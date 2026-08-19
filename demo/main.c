@@ -1,6 +1,4 @@
-// user wrapper for demo of secure send/recv
-// 대화형 메뉴 하나로 secure_send_demo.c/secure_recv_demo.c와 같은 LEA-CTR + HMAC-LSH256
-// 왕복 흐름을 그 자리에서 직접 수행 (별도 실행파일을 띄우지 않음).
+// 대화형 메뉴로 LEA-CTR + HMAC-LSH256 왕복 흐름 수행.
 
 #include "../framing/secure_frame.h"
 #include "../keymgmt/key_store.h"
@@ -9,8 +7,10 @@
 #include "../crypto/lea_ctr.h"
 #include "../crypto/hmac_lsh.h"
 #include "../modbus/modbus_pdu.h"
+#include "../modbus/modbus_pdu_selftest.h"
 #include "serial_port.h"
 #include "key_paths.h"
+#include "main.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -35,8 +35,7 @@ static void flush_stdin_line(void)
     }
 }
 
-/* secure_send_demo.c/secure_recv_demo.c의 log-file 기반 print_hex()와 달리 콘솔에 바로
-   출력 -- main.c는 인터랙티브 도구라 로그 파일이 없고, 그 자리에서 바로 보여주는 게 맞음. */
+// 콘솔에 출력
 static void print_hex(const char *label, const uint8_t *buf, size_t len)
 {
     size_t i;
@@ -85,7 +84,7 @@ static void process_incoming_frame(const uint8_t *rx_buf, size_t rx_len, serial_
         break;
     case SECURE_FRAME_ERR_WRONG_ADDR:
         /* 실제 RS-485 버스에는 슬레이브가 여럿 달릴 수 있어 이 프레임이 우리 주소로 온 게
-           아닐 수 있음 -- 그런 프레임은 (키가 있어도) 우리 것으로 처리하면 안 됨. */
+           아닐 수 있음 - 그런 프레임은 (키가 있어도) 우리 것으로 처리하면 안 됨. */
         printf("Frame addressed to slave %u, not us (configured as %u) -- ignoring\n",
                (unsigned int) addr, (unsigned int) config_slave_addr);
         return;
@@ -123,20 +122,6 @@ static void process_incoming_frame(const uint8_t *rx_buf, size_t rx_len, serial_
     }
 
     printf("Slave processing OK\n");
-}
-
-static const char *modbus_exception_name(uint8_t code)
-{
-    switch (code) {
-    case MODBUS_EXCEPTION_ILLEGAL_FUNCTION:
-        return "Illegal Function";
-    case MODBUS_EXCEPTION_ILLEGAL_DATA_ADDRESS:
-        return "Illegal Data Address";
-    case MODBUS_EXCEPTION_ILLEGAL_DATA_VALUE:
-        return "Illegal Data Value";
-    default:
-        return "unknown";
-    }
 }
 
 static void run_as_master(void)
@@ -298,7 +283,7 @@ static void do_run_exchange(void)
     }
 
     ctr_state_set_path(is_master ? "ctr_state.dat" : "ctr_state_recv.dat");
-    ctr_state_load(); /* 없어도 무방 -- 처음 필요해지는 시점에 key_store의 initial_ctr로 대체 */
+    ctr_state_load(); /* 없으면 처음 필요해지는 시점에 key_store의 initial_ctr로 대체 */
 
     if (is_master) {
         run_as_master();
@@ -310,18 +295,9 @@ static void do_run_exchange(void)
 /* 암호화 로직 점검용 테스트: 하드웨어 없이 한 프로세스 안에서 공개 API
    (secure_frame_encrypt_and_build(), secure_frame_verify_and_decrypt())를 두 방향(m2s/s2m) 모두
    직접 호출해 검증한다. serial_port를 전혀 거치지 않으므로 통과해도 실제 RS-485 배선/포트
-   (/dev/ttyAMA0, COM 포트 등) 상태는 확인하지 못함 -- 하드웨어/배선 확인은 옵션 4로 포트를
+   (/dev/ttyAMA0, COM 포트 등) 상태는 확인하지 않음 - 하드웨어/배선 확인은 옵션 4로 포트를
    설정한 뒤 옵션 5(실행)로 해야 한다.
-
-   아래 두 체크가 같은 테스트 주소(0xF0)에 서로 다른 방향(m2s/s2m)을 쓰는 것은 key_store/
-   ctr_state 둘 다 table[addr][dir] 2차원 테이블이라 슬롯이 (addr, dir) 조합으로 정해지기
-   때문이다 -- addr과 dir이 둘 다 다를 필요는 없고, 둘 중 하나만 달라도 슬롯은 별개다. 같은
-   (addr, dir) 슬롯에 대해 secure_frame_encrypt_and_build()를 부른 직후
-   secure_frame_verify_and_decrypt()를 또 부르면, 그 함수 내부의 ctr_state_next_outgoing()이
-   두 번째로 호출되어 이미 전진된 다음 카운터를 받아오게 되므로 복호화가 실패한다 (재현 방법:
-   옵션 3을 실제 함수 두 개로 같은 (addr, dir)에 대해 연달아 부르면 두 번째 호출이 CRC
-   mismatch로 실패한다). 서로 다른 (addr, dir) 슬롯을 쓰면 이 문제를 피하면서도 공개 함수를
-   그대로 검증할 수 있다. */
+   테스트 주소(0xF0) 사용하여 검증 진행 */
 static void do_self_test(void)
 {
     int ok = 1;
@@ -329,10 +305,9 @@ static void do_self_test(void)
 
     printf("Running crypto logic self-test (no serial port involved)...\n");
 
-    /* --- encrypt-path check: 실제 secure_frame_encrypt_and_build()를 호출해 검증.
+    /* encrypt-path check: 실제 secure_frame_encrypt_and_build()를 호출해 검증.
        0xF0/m2s는 이 프로세스에서 처음 쓰이므로 그 함수 내부의 ctr_state_next_outgoing()
-       호출이 항상 0을 반환 -- 그 사실을 이용해 복호화는 secure_frame_verify_and_decrypt()를
-       다시 부르지 않고(위 주석 참고) 알고 있는 ctr_low=0으로 직접 검증한다. */
+       호출이 항상 0을 반환 - 그 사실을 이용해 복호화는 알고 있는 ctr_low=0으로 직접 검증한다. */
     {
         const uint8_t addr = 0xF0;
         directional_keys_t dk;
@@ -353,7 +328,7 @@ static void do_self_test(void)
         }
 
         /* 이 셀프 테스트가 같은 프로세스 안에서 여러 번 실행돼도(옵션 3을 반복 선택) 항상
-           ctr_low=0부터 다시 시작하도록 리셋 -- 안 하면 두 번째 실행부터 이 (addr, dir)의
+           ctr_low=0부터 다시 시작하도록 리셋 - 안 하면 두 번째 실행부터 이 (addr, dir)의
            카운터가 이미 전진해 있어 아래 수동 복호화의 ctr_low=0 가정이 깨진다. */
         ctr_state_reset(addr, DIR_MASTER_TO_SLAVE);
 
@@ -400,13 +375,10 @@ static void do_self_test(void)
         }
     }
 
-    /* --- decrypt-path check: 실제 secure_frame_verify_and_decrypt()를 호출해 검증하며,
-       파일 왕복 테스트(마스터가 sent_frame.bin에 쓰고 슬레이브가 읽는 방식)로는 절대 닿지
-       않는 DIR_SLAVE_TO_MASTER 방향까지 커버한다 (그 왕복은 항상 DIR_MASTER_TO_SLAVE만 씀).
-       0xF0/s2m은 주소는 위 encrypt-path 체크(0xF0/m2s)와 같지만 방향이 달라 여전히 다른
-       (addr, dir) 슬롯이므로 독립적으로 새 것이고, ctr_low=0으로 직접 만든 프레임을 실제
-       secure_frame_verify_and_decrypt()에 바로 넘겨도 안전하다 (그 함수의 첫
-       ctr_state_next_outgoing() 호출도 0을 반환하므로 서로 맞음). */
+    /* decrypt-path check: 실제 secure_frame_verify_and_decrypt()를 호출해 검증하며,
+       파일 왕복 테스트(마스터가 sent_frame.bin에 쓰고 슬레이브가 읽는 방식)로는 확인할 수 없는
+       DIR_SLAVE_TO_MASTER 방향까지 커버한다 (그 왕복은 항상 DIR_MASTER_TO_SLAVE만 씀).
+    */
     {
         const uint8_t addr = 0xF0;
         directional_keys_t dk;
@@ -450,7 +422,7 @@ static void do_self_test(void)
 
         wire_len = secure_frame_build(&frame, wire);
 
-        /* 위 encrypt-path 체크와 같은 이유로 리셋 -- 아래 secure_frame_verify_and_decrypt()
+        /* 위 encrypt-path 체크와 같은 이유로 리셋 - 아래 secure_frame_verify_and_decrypt()
            호출이 이 (addr, dir)에 대해 처음 ctr_state_next_outgoing()을 부르는 것이어야
            위에서 직접 만든 ctr_low=0 프레임과 맞는다. */
         ctr_state_reset(addr, DIR_SLAVE_TO_MASTER);
@@ -477,67 +449,13 @@ static void do_self_test(void)
         }
     }
 
+    /* 위 두 체크는 암호화/프레이밍만 검증하고 modbus_build_response() 내부의 함수 코드별
+       분기(코일/레지스터 읽기·쓰기, 예외 처리)는 전혀 건드리지 않으므로 별도로 검증.
+       케이스 목록은 modbus/modbus_pdu_selftest.c 참고 (demo/test_modbus_response.c와 공유). */
+    ok = modbus_pdu_self_test() && ok;
+
     if (ok) {
         printf("Self-test: ALL PASS\n");
-    }
-}
-
-static const char *modbus_func_name(uint8_t func)
-{
-    switch (func) {
-    case MODBUS_FUNC_READ_COILS:
-        return "Read Coils";
-    case MODBUS_FUNC_READ_DISCRETE_INPUTS:
-        return "Read Discrete Inputs";
-    case MODBUS_FUNC_READ_HOLDING_REGISTERS:
-        return "Read Holding Registers";
-    case MODBUS_FUNC_READ_INPUT_REGISTERS:
-        return "Read Input Registers";
-    case MODBUS_FUNC_WRITE_SINGLE_COIL:
-        return "Write Single Coil";
-    case MODBUS_FUNC_WRITE_SINGLE_REGISTER:
-        return "Write Single Register";
-    case MODBUS_FUNC_WRITE_MULTIPLE_COILS:
-        return "Write Multiple Coils";
-    case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
-        return "Write Multiple Registers";
-    default:
-        return "?";
-    }
-}
-
-static int modbus_func_is_supported(uint8_t func)
-{
-    switch (func) {
-    case MODBUS_FUNC_READ_COILS:
-    case MODBUS_FUNC_READ_DISCRETE_INPUTS:
-    case MODBUS_FUNC_READ_HOLDING_REGISTERS:
-    case MODBUS_FUNC_READ_INPUT_REGISTERS:
-    case MODBUS_FUNC_WRITE_SINGLE_COIL:
-    case MODBUS_FUNC_WRITE_SINGLE_REGISTER:
-    case MODBUS_FUNC_WRITE_MULTIPLE_COILS:
-    case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
-/* value_or_qty 프롬프트에 붙는 설명은 함수 코드에 따라 의미가 다름 (modbus_pdu.h의
-   modbus_build_request() 문서 주석과 동일한 대응). */
-static const char *value_or_qty_label(uint8_t func)
-{
-    switch (func) {
-    case MODBUS_FUNC_WRITE_SINGLE_COIL:
-        return "Coil value (0=OFF, 1=ON)";
-    case MODBUS_FUNC_WRITE_SINGLE_REGISTER:
-        return "Register value (0-65535)";
-    case MODBUS_FUNC_WRITE_MULTIPLE_COILS:
-        return "Quantity of coils to write (values auto-generated)";
-    case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
-        return "Quantity of registers to write (values auto-generated)";
-    default:
-        return "Quantity to read";
     }
 }
 

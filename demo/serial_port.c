@@ -46,7 +46,7 @@ int serial_port_open(serial_port_t *sp, const char *port_name, long baud, int re
     }
 
     /* COMMTIMEOUTS::ReadIntervalTimeout은 밀리초 (DWORD)
-    -- Modbus T3.5 규격을 높은 baud에서 구현 불가 (e.g. ~334us at 115200), ms로 올림 처리
+    - Modbus T3.5 규격을 높은 baud에서 구현 불가 (e.g. ~334us at 115200), ms로 올림 처리
     0은 0으로 유지 (sender's "don't care" case, see serial_port.h). */
     read_interval_timeout_ms = (read_interval_timeout_us == 0)
                                     ? 0

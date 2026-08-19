@@ -77,17 +77,28 @@ endif
 # model) is needed by secure_demo (builds requests as master, responses as slave)
 # and secure_recv_demo (responses as slave) -- but not secure_send_demo, which
 # never acts as slave and keeps its own fixed function-0x10 frame-size sweep.
+# modbus_pdu_selftest.c (the modbus_pdu_self_test() cases) rides along with it --
+# secure_demo's self-test menu option calls it, and it's the same object the
+# `test` target below links into the standalone test_modbus_response runner.
 DEMO_COMMON = demo/serial_port.c demo/key_paths.c
 DEMO_LOG    = demo/demo_log.c
-MODBUS_PDU  = modbus/modbus_pdu.c
+MODBUS_PDU  = modbus/modbus_pdu.c modbus/modbus_pdu_selftest.c
 
 LIB_SRCS  = $(SEC_SRCS) $(LEA_REF_COMMON) $(LEA_REF_ARCH) $(DEMO_COMMON)
 LIB_OBJS  = $(patsubst %.c,%.o,$(patsubst %.S,%.o,$(LIB_SRCS)))
 DEMO_LOG_OBJS    = $(patsubst %.c,%.o,$(DEMO_LOG))
 MODBUS_PDU_OBJS  = $(patsubst %.c,%.o,$(MODBUS_PDU))
 
-.PHONY: all clean
+.PHONY: all clean test
 all: secure_send_demo secure_recv_demo secure_demo
+
+# modbus_pdu.c의 순수 로직(암호화/시리얼 무관)만 도는 유닛 테스트 -- 실패 시
+# test_modbus_response 자체가 0이 아닌 값을 반환해 make도 실패로 표시한다.
+test: demo/test_modbus_response
+	demo/test_modbus_response
+
+demo/test_modbus_response: demo/test_modbus_response.c $(MODBUS_PDU)
+	$(CC) $(CFLAGS) -o $@ demo/test_modbus_response.c $(MODBUS_PDU)
 
 secure_send_demo: demo/secure_send_demo.o $(LIB_OBJS) $(DEMO_LOG_OBJS)
 	$(CC) $^ -o $@
@@ -105,4 +116,4 @@ secure_demo: demo/main.o $(LIB_OBJS) $(MODBUS_PDU_OBJS)
 	$(CC) $(CFLAGS) $(ARCH_CFLAGS) -c $< -o $@
 
 clean:
-	rm -f secure_send_demo secure_recv_demo secure_demo demo/secure_send_demo.o demo/secure_recv_demo.o demo/main.o $(LIB_OBJS) $(DEMO_LOG_OBJS) $(MODBUS_PDU_OBJS)
+	rm -f secure_send_demo secure_recv_demo secure_demo demo/test_modbus_response demo/secure_send_demo.o demo/secure_recv_demo.o demo/main.o $(LIB_OBJS) $(DEMO_LOG_OBJS) $(MODBUS_PDU_OBJS)

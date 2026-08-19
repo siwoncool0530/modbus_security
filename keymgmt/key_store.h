@@ -19,7 +19,7 @@ typedef struct {
     uint8_t mac_key[KEY_SIZE];
 } directional_keys_t;
 
-/* key_direction_t를 0..2 테이블 인덱스로 매핑 -- key_store와 ctr_state 둘 다
+/* key_direction_t를 0..2 테이블 인덱스로 매핑 - key_store와 ctr_state 둘 다
    (addr, dir) 테이블을 병렬로 색인하므로 이 매핑을 공유. 성공 시 0을 반환하고
    out을 채우며, dir이 잘못된 값이면 -1을 반환. */
 int key_direction_index(key_direction_t dir, int *out);
@@ -28,10 +28,11 @@ int key_direction_index(key_direction_t dir, int *out);
    성공 시 0을 반환하고 out을 채우며, slave addr이 등록되어 있지 않으면 -1을 반환. */
 int key_store_lookup(uint8_t slave_addr, key_direction_t dir, directional_keys_t *out);
 
-/* 주어진 방향에서 slave_addr의 키 쌍을 등록(또는 교체) — 커미셔닝/페어링 과정에서 한 번 호출. */
+/* 주어진 방향에서 slave_addr의 키 쌍을 등록(또는 교체) — 최초 1회 호출. */
 int key_store_provision(uint8_t slave_addr, key_direction_t dir, const directional_keys_t *keys);
 
-/* 테스트/커미셔닝용 키 소스: 텍스트 파일에서 키 자료를 불러오며, 한 줄에 항목 하나씩 다음 형식으로 기록:
+/* 키 소스 불러오기
+   텍스트 파일에서 키를 불러오며, 한 줄에 항목 하나씩 다음 형식으로 기록:
    "<addr> <dir> <enc_key:16자> <mac_key:16자> <initial_ctr:16진수 8자>"
    여기서 <dir>는 m2s/s2m/bc이고 키 필드는 16진수로 디코딩하지 않은 원본 ASCII 바이트 그대로.
    예: 1 m2s 1234567890123456 abcdefghijklmnop 00000000

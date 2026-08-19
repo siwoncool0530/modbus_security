@@ -99,8 +99,8 @@ int secure_frame_encrypt_and_build(uint8_t slave_addr,
 
     /* ctr_high는 로컬에만 보관되고 절대 전송되지 않는 논스 확장값이며, 양단은 대역 외 경로로 동일한 값을 미리 설정받아야 함.
     ctr_state가 관리하는 것은 원래대로라면 전송될 하위 워드 뿐인데
-       - 사실 여기서는 그것도 전송되지 않으므로, ctr_low는 순전히 내부 키스트림 위치일 뿐이며 수신 측은 동일한
-       시퀀스를 추적하여 이를 재구성해야 함. */
+       해당 환경에서 ctr이 전송되지 않으므로, ctr_low는 순전히 내부 키스트림 위치일 뿐이며 수신 측은 동일한
+       시퀀스를 재구성해야 함. */
     memset(ctr_high, 0, sizeof(ctr_high));
     ctr_low = ctr_state_next_outgoing(slave_addr, dir, adu_len);
 

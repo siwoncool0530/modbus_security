@@ -1,6 +1,5 @@
 /* 순수 Modbus PDU 로직: 함수 코드, 코일/레지스터 데이터 모델, 예외 응답.
-   프레임 암호화(framing/)나 키 관리(keymgmt/)는 전혀 모르며, "암호화될 내용물"만 다룸 --
-   secure_frame.c가 "봉투 구조"만 알고 내용물을 모르는 것과 대칭되는 역할.
+   프레임 암호화(framing/)나 키 관리(keymgmt/)는 전혀 모르며, "암호화될 내용물"만 다룸
    지원 함수 코드 8종: 0x01 Read Coils, 0x02 Read Discrete Inputs, 0x03 Read Holding
    Registers, 0x04 Read Input Registers, 0x05 Write Single Coil, 0x06 Write Single
    Register, 0x0F Write Multiple Coils, 0x10 Write Multiple Registers. */

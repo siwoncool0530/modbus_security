@@ -16,6 +16,7 @@ ver 1.0
    - 4.6 [demo/ 공용 유틸리티](#46-demo-공용-유틸리티)
 5. [데모 프로그램 사용법](#5-데모-프로그램-사용법)
 6. [테스트 방법](#6-테스트-방법)
+7. [참조 문헌](#7-참조-문헌)
 
 ---
 
@@ -634,3 +635,16 @@ ssh <host> "cd ~/security_test && printf '2\n3\n6\n' | ./secure_demo"   # 셀프
 - [ ] §4.5의 8개 함수 코드 모두 `환경 설정` → `실행`으로 요청 PDU가 표대로 만들어짐 (§6.2)
 - [ ] `modbus_pdu` 하네스(§6.3)에서 8개 함수 코드 성공 경로 + 3개 예외 코드 + 경계 조건 전부 PASS
 - [ ] Pi에서 위 항목들을 다시 실행해도 동일하게 PASS (§6.4)
+
+---
+
+## 7. 참조 문헌
+
+1. modbus.org, "MODBUS over Serial Line Specification and Implementation Guide V1.02," 2006. ([modbusoverserial.pdf](modbusoverserial.pdf))
+2. modbus.org, "MODBUS APPLICATION PROTOCOL SPECIFICATION V1.1b3," 2012. ([modbusprotocolspecification.pdf](modbusprotocolspecification.pdf))
+3. 국가보안기술연구소, "128비트 블록암호 LEA 규격서," 2013.
+4. D. Hong, J.-K. Lee, D.-C. Kim, D. Kwon, K. H. Ryu and D.-G. Lee, "LEA: A 128-Bit Block Cipher for Fast Encryption on Common Processors," in International Workshop on Information Security Applications, 2013. ([LEA A 128-Bit Block Cipher for Fast Encryption on Common Processors-English.pdf](LEA%20A%20128-Bit%20Block%20Cipher%20for%20Fast%20Encryption%20on%20Common%20Processors-English.pdf))
+5. D.-C. Kim, D. Hong, J.-k. Lee, W.-H. Kim and D. Kwon, "LSH: A New Fast Secure Hash Function Family," in International Conference on Information Security and Cryptology, 2014. ([LSH A New Fast Secure Hash Function Family.pdf](LSH%20A%20New%20Fast%20Secure%20Hash%20Function%20Family.pdf))
+6. 국가보안기술연구소, "해시함수 LSH 규격서," 2014.
+7. 국가보안기술연구소, "블록암호 LEA 소스코드 사용 매뉴얼(v1.0)," 2015. ([블록암호 LEA 소스코드 사용 매뉴얼(v1.0).pdf](%EB%B8%94%EB%A1%9D%EC%95%94%ED%98%B8%20LEA%20%EC%86%8C%EC%8A%A4%EC%BD%94%EB%93%9C%20%EC%82%AC%EC%9A%A9%20%EB%A7%A4%EB%89%B4%EC%96%BC(v1.0).pdf))
+8. 국가보안기술연구소, "LSH 소스코드 사용 매뉴얼(v1.0)," 2016. ([해시함수 LSH 소스코드 사용 매뉴얼(v1.0).pdf](%ED%95%B4%EC%8B%9C%ED%95%A8%EC%88%98%20LSH%20%EC%86%8C%EC%8A%A4%EC%BD%94%EB%93%9C%20%EC%82%AC%EC%9A%A9%20%EB%A7%A4%EB%89%B4%EC%96%BC(v1.0).pdf))

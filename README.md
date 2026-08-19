@@ -136,5 +136,5 @@ gcc -O2 -Wall -DNO_AVX2 -DNO_XOP -DNO_PCLMUL -DNO_SSE2 \
 2. 하나의 프로세스는 master로, 하나의 프로세스는 옵션 1을 입력해 slave로 설정한다.
 3. 옵션 2를 입력, key 파일을 불러온다.
 4. 옵션 3을 통해 테스트를 진행한다.
-5. master측에서 옵션 4를 입력, 환경 설정으로 port, baud rate, slave addr, Function code 선택한다. slave측도 환경 설정을 통해 port, baud rate, slave addr 입력 및 설정한다.
+5. master측에서 옵션 4를 입력, 환경 설정으로 port(ex. `COM3`, `/dev/ttyAMA0`), baud rate, slave addr, Function code 선택한다. slave측도 환경 설정을 통해 port, baud rate, slave addr 입력 및 설정한다.
 6. slave측에서 응답 대기하도록 옵션 5를 입력하여 실행하고, master에서 5를 입력한 후 전송 및 응답 결과를 확인한다.

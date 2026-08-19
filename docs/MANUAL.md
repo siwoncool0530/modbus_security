@@ -48,15 +48,15 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 
 ### 설계 근거
 
-**왜 CTR 카운터를 전송하지 않는가.** 키 관리 서버에서 안전하게 받아온다고 가정. 코드에서는 마스터와 슬레이브가 각자 독립적으로 카운터를 증가시키며 같은 순서로 프레임을 처리한다고 약속함. **프레임 하나라도 유실되면 두 쪽의 카운터가 어긋남 주의** — `ctr_state_reset()`(§4.3)이 그 상황을 복구.
+**왜 CTR 카운터를 전송하지 않는가.** 키 관리 서버에서 안전하게 받아온다고 가정. 코드에서는 마스터와 슬레이브가 각자 독립적으로 카운터를 증가시키며 같은 순서로 프레임을 처리한다고 약속함. **프레임 하나라도 유실되면 두 쪽의 카운터가 어긋남 주의** — `ctr_state_reset()`([4.3](#43-keymgmtctr_stateh))이 그 상황을 복구.
 
 **왜 (해시가 아니라) HMAC인가.** `hmac_lsh256()`은 암호 키가 들어간 구성. 평문 해시는 아무나 계산할 수 있으므로 "이 프레임이 변조되지 않았다"만 보장하고 "이 프레임을 우리가 공유한 키를 가진 쪽이 만들었다"는 보장하지 못하므로 보안 취약점 해소 위해 HMAC 사용.
 
-**왜 CRC16을 암호문 안에도 두는가.** `secure_frame_verify_and_decrypt()`가 HMAC 검증에 성공한 뒤 복호화하고 CRC를 다시 확인하는데, 이 CRC 검증은 카운터가 어긋났을 때의 1차 진단 신호로 확인(§4.4, `SECURE_FRAME_ERR_CRC`) — HMAC은 키가 맞는 발신자가 보냈다는 것만 보장하고, 복호화에 쓴 카운터가 송신 측과 일치했는지는 보장하지 않으므로, CRC가 그 어긋남을 잡아내는 역할을 겸한다.
+**왜 CRC16을 암호문 안에도 두는가.** `secure_frame_verify_and_decrypt()`가 HMAC 검증에 성공한 뒤 복호화하고 CRC를 다시 확인하는데, 이 CRC 검증은 카운터가 어긋났을 때의 1차 진단 신호로 확인([4.4](#44-framingsecure_frameh), `SECURE_FRAME_ERR_CRC`) — HMAC은 키가 맞는 발신자가 보냈다는 것만 보장하고, 복호화에 쓴 카운터가 송신 측과 일치했는지는 보장하지 않으므로, CRC가 그 어긋남을 잡아내는 역할을 겸한다.
 
 ### 보안 상 제약사항
 
-- **재전송(replay) 방지 미적용**: `ctr_state_validate_incoming()`(§4.3)이 재전송 탐지 로직을 구현하고 있지만, 코드 전체에서 실제로 호출되는 곳이 없다. 현재 수신측은 "다음에 올 프레임은 다음 카운터를 쓸 것"이라 가정하고 복호화 시도. 실제 환경에서는 재전송 시 탐지 로직이 필요하다.
+- **재전송(replay) 방지 미적용**: `ctr_state_validate_incoming()`([4.3](#43-keymgmtctr_stateh))이 재전송 탐지 로직을 구현하고 있지만, 코드 전체에서 실제로 호출되는 곳이 없다. 현재 수신측은 "다음에 올 프레임은 다음 카운터를 쓸 것"이라 가정하고 복호화 시도. 실제 환경에서는 재전송 시 탐지 로직이 필요하다.
 - **HMAC 비교가 상수 시간이 아님**: `secure_frame.c`가 `memcmp()`로 HMAC을 비교해 시간복잡도 O(N).
 - **카운터 손실 가능**: `ctr_state_persist()`는 매 호출마다 파일을 단순 재작성(임시파일에 쓰고 rename하는 방식이 아님). 기록 도중 전원이 끊기면 카운터 파일이 손상될 수 있어 실제 트래픽 처리 전에 재검토 필요.
 - **`modbus/`의 데이터 모델은 데모용**: 코일/레지스터 128개 고정 크기 배열이며 실제 슬레이브 장비의 레지스터 맵을 반영하지 않는다.
@@ -94,7 +94,7 @@ demo/      위 계층들을 엮은 실행 가능한 도구 (인터랙티브 도�
 | 파일명 | 내용 |
 | --- | --- |
 | `modbus_pdu.h`/`modbus_pdu.c` | 함수 코드 8종의 요청/응답 PDU 조립, 데모용 코일/레지스터 데이터 모델, Modbus 예외 응답 |
-| `modbus_pdu_selftest.h`/`modbus_pdu_selftest.c` | 요청 PDU 기반 응답(정상/예외 응답) PDU 정상 생성 여부를 검증하는 자체 테스트 (§6.1에서 `secure_demo` 옵션 3이 호출) |
+| `modbus_pdu_selftest.h`/`modbus_pdu_selftest.c` | 요청 PDU 기반 응답(정상/예외 응답) PDU 정상 생성 여부를 검증하는 자체 테스트 ([6.1](#61-단위-테스트-secure_demo-옵션-3-do_self_test)에서 `secure_demo` 옵션 3이 호출) |
 
 ### demo/ — 실행 가능한 도구와 공용 유틸리티
 
@@ -314,7 +314,7 @@ void ctr_state_reset(uint8_t slave_addr, key_direction_t dir);
 ```
 
 **매개변수**: `slave_addr` [in], `dir` [in].\
-**설명**: (slave_addr, dir)의 카운터 상태를 지워 처음 상태로 되돌려 다음 호출이 `key_store`의 initial_ctr부터 다시 시작. 같은 프로세스 안에서 같은 (addr, dir)로 반복 테스트할 때(예: 셀프 테스트를 여러 번 실행) 이전 실행의 카운터 잔재로 어긋나는 것을 막는 데 사용 (§6.1 참고). 호출 즉시 `ctr_state_persist()`도 함께 실행되므로 파일에도 리셋된 상태가 반영된다.
+**설명**: (slave_addr, dir)의 카운터 상태를 지워 처음 상태로 되돌려 다음 호출이 `key_store`의 initial_ctr부터 다시 시작. 같은 프로세스 안에서 같은 (addr, dir)로 반복 테스트할 때(예: 셀프 테스트를 여러 번 실행) 이전 실행의 카운터 잔재로 어긋나는 것을 막는 데 사용 ([6.1](#61-단위-테스트-secure_demo-옵션-3-do_self_test) 참고). 호출 즉시 `ctr_state_persist()`도 함께 실행되므로 파일에도 리셋된 상태가 반영된다.
 
 ### 4.4 framing/secure_frame.h
 
@@ -365,9 +365,9 @@ secure_frame_status_t secure_frame_verify_and_decrypt(
 **설명**: `secure_frame_encrypt_and_build()`의 역방향. 파싱 → (필요 시) 주소 검사 → 키 조회 → HMAC 검증 → LEA-CTR 복호화 → CRC16 검증 순으로 처리. `SECURE_FRAME_OK`(0)를 반환하면 `out_pdu`/`out_pdu_len`이 유효.\
 **동작/경계 조건**:
 
-- HMAC 비교는 `memcmp()`로 이루어짐 — 상수 시간 비교가 아니므로 §1의 "보안 상 제약사항" 참고.
+- HMAC 비교는 `memcmp()`로 이루어짐 — 상수 시간 비교가 아니므로 [1](#1-개요)의 "보안 상 제약사항" 참고.
 - `SECURE_FRAME_ERR_CRC`는 대개 "HMAC은 맞는데 복호화 결과가 깨짐" = **카운터가 어긋났다는 신호** — 키가 틀렸다면 HMAC 단계에서 먼저 걸러지므로, CRC까지 통과 못 했다는 건 인증은 됐지만 잘못된 카운터로 복호화했다는 뜻.
-- 내부적으로 `ctr_state_next_outgoing()`을 호출하므로(§4.3 참고), **같은 (addr, dir)로 이 함수를 두 번 연달아 부르면 두 번째 호출은 실패한다** — `secure_frame_encrypt_and_build()`로 막 만든 프레임을 같은 프로세스에서 바로 이 함수로 복호화해보는 건 안 된다(§6.1 단위 테스트가 이 문제를 피해가는 방법을 그대로 보여줌).
+- 내부적으로 `ctr_state_next_outgoing()`을 호출하므로([4.3](#43-keymgmtctr_stateh) 참고), **같은 (addr, dir)로 이 함수를 두 번 연달아 부르면 두 번째 호출은 실패한다** — `secure_frame_encrypt_and_build()`로 막 만든 프레임을 같은 프로세스에서 바로 이 함수로 복호화해보는 건 안 된다([6.1](#61-단위-테스트-secure_demo-옵션-3-do_self_test) 단위 테스트가 이 문제를 피해가는 방법을 그대로 보여줌).
 
 ```c
 uint8_t addr, pdu[SECURE_FRAME_MAX_PDU];
@@ -506,7 +506,7 @@ if (modbus_build_response(pdu, pdu_len, resp, &resp_len)) {
 }
 ```
 
-이 표와 예제는 §6.1의 `modbus_pdu_self_test()`(24개 케이스)로 전수 검증됨.
+이 표와 예제는 [6.1](#61-단위-테스트-secure_demo-옵션-3-do_self_test)의 `modbus_pdu_self_test()`(24개 케이스)로 전수 검증됨.
 
 ### 4.6 demo/ 공용 유틸리티
 
@@ -515,7 +515,7 @@ if (modbus_build_response(pdu, pdu_len, resp, &resp_len)) {
 | `void exe_relative_path(const char *argv0, const char *filename, char *out, size_t out_size)` | argv0 [in], filename [in], out [out], out_size [in] | `"<argv0 디렉터리>/filename"` 문자열 조립. `keys.txt`/카운터 파일/로그 파일을 실행 파일 위치에 고정하는 데 사용 |
 | `int demo_load_keys(const char *argv0)` | argv0 [in, NULL 허용] | `keys.txt`를 5가지 후보 경로로 순서대로 탐색해 로드 (cwd → 실행파일 옆 → `keymgmt/keys.txt` → `security/keymgmt/keys.txt` → `../keymgmt/keys.txt`). 불러온 항목 수(>0) 또는 실패 시 <=0 반환 |
 | `long modbus_t35_us(long baud)` | baud [in] | Modbus RTU 스펙의 T3.5 유휴 간격을 마이크로초 단위로 계산 (실측 기반 20ms 최솟값 포함) |
-| `void log_open(const char *path)` 외 `log_close_atexit`/`log_detail`/`log_summary`/`print_hex` | — | 파일 로깅 유틸리티 (`secure_send_demo`/`secure_recv_demo` 전용, §3 표 참고) |  
+| `void log_open(const char *path)` 외 `log_close_atexit`/`log_detail`/`log_summary`/`print_hex` | — | 파일 로깅 유틸리티 (`secure_send_demo`/`secure_recv_demo` 전용, [3](#3-빌드-방법) 표 참고) |  
 
 **기본값/경계 조건**: `demo_load_keys()`는 `argv0`가 `NULL`이어도 동작하지만 그 경우 "실행파일 옆" 경로 후보는 건너뛴다(나머지 4개 후보만 시도). 5개 후보를 모두 실패하면 0 이하를 반환하며 `key_store`는 변경되지 않는다. `modbus_t35_us()`는 계산값이 20ms(20000us) 미만이면 20ms로 올림하므로, `baud`에 어떤 값을 넣어도(0 포함) 반환값은 항상 20000 이상이다. `log_open()`을 호출하지 않고 `log_detail`/`log_summary`를 호출하면(파일이 안 열려 있으면) 해당 로그는 버려진다. `main.c`는 파일 로그를 쓰지 않으므로 이 유틸리티들을 아예 쓰지 않고 자체 `printf` 기반 출력만 사용한다.
 
@@ -556,9 +556,9 @@ serial_port_open(&sp, argv[1], baud, (int) modbus_t35_us(baud));
 
 - **1. 모드 전환**: `is_master` 플래그를 뒤집음.
 - **2. 키 초기화**: `demo_load_keys()`로 `keys.txt` 로드.
-- **3. 단위 테스트**: 포트에 실제로 연결하지 않고 암호화/프레이밍 로직과 `modbus_build_response()`의 함수 코드별 분기까지 한 번에 검증. §6.1 참고.
-- **4. 환경 설정**: 포트(빈 값=현재 유지, `-`=포트 없음/파일 폴백) → baud → slave 주소(마스터일 땐 보낼 대상, 슬레이브일 땐 자신의 주소) → 함수 코드(1/2/3/4/5/6/15/16 중 하나) → 시작 주소 → `value_or_qty`(함수 코드에 따라 라벨이 바뀜 — §4.5 표 참고).
-- **5. 실행**: 마스터면 §4.5의 함수 코드로 요청을 만들어 암호화 후 전송(포트 미설정 시 `sent_frame.bin`에 기록). 슬레이브면 수신 프레임을 검증/복호화하고, 실제 포트가 있으면 응답까지 암호화해 회신(포트 없이 파일로 읽은 경우는 검증/복호화만).
+- **3. 단위 테스트**: 포트에 실제로 연결하지 않고 암호화/프레이밍 로직과 `modbus_build_response()`의 함수 코드별 분기까지 한 번에 검증. [6.1](#61-단위-테스트-secure_demo-옵션-3-do_self_test) 참고.
+- **4. 환경 설정**: 포트(빈 값=현재 유지, `-`=포트 없음/파일 폴백) → baud → slave 주소(마스터일 땐 보낼 대상, 슬레이브일 땐 자신의 주소) → 함수 코드(1/2/3/4/5/6/15/16 중 하나) → 시작 주소 → `value_or_qty`(함수 코드에 따라 라벨이 바뀜 — [4.5](#45-modbusmodbus_pduh) 표 참고).
+- **5. 실행**: 마스터면 [4.5](#45-modbusmodbus_pduh)의 함수 코드로 요청을 만들어 암호화 후 전송(포트 미설정 시 `sent_frame.bin`에 기록). 슬레이브면 수신 프레임을 검증/복호화하고, 실제 포트가 있으면 응답까지 암호화해 회신(포트 없이 파일로 읽은 경우는 검증/복호화만).
 
 ### 5.2 secure_send_demo / secure_recv_demo
 
@@ -567,7 +567,7 @@ secure_send_demo [port] [baud] [count]     # 포트 생략 시 sent_frame.bin에
 secure_recv_demo port [baud] [count]       # 포트 필수
 ```
 
-`secure_send_demo`는 함수 0x10(Write Multiple Registers) 프레임을 레지스터 1개~123개까지 크기를 늘려가며 `count`번 전송해 모든 크기에서 프레임이 정상 생성되는 지 테스트한다(§4.5의 다른 함수 코드는 다루지 않음). `secure_recv_demo`는 실제 포트에서 프레임을 받아 검증/복호화하고 §4.5 로직으로 응답까지 회신한다.
+`secure_send_demo`는 함수 0x10(Write Multiple Registers) 프레임을 레지스터 1개~123개까지 크기를 늘려가며 `count`번 전송해 모든 크기에서 프레임이 정상 생성되는 지 테스트한다([4.5](#45-modbusmodbus_pduh)의 다른 함수 코드는 다루지 않음). `secure_recv_demo`는 실제 포트에서 프레임을 받아 검증/복호화하고 [4.5](#45-modbusmodbus_pduh) 로직으로 응답까지 회신한다.
 
 ---
 
@@ -579,7 +579,7 @@ secure_recv_demo port [baud] [count]       # 포트 필수
 
 - **encrypt-path 체크** (테스트 주소 `0xF0`, `DIR_MASTER_TO_SLAVE`): `secure_frame_encrypt_and_build()`를 호출한 뒤, 알고 있는 `ctr_low=0`으로 직접 HMAC/복호화/CRC를 검증.
 - **decrypt-path 체크** (테스트 주소 `0xF0`, `DIR_SLAVE_TO_MASTER`): `ctr_low=0`으로 직접 만든 프레임을 `secure_frame_verify_and_decrypt()`에 넘겨 검증.
-- **`modbus_build_response()` 체크**: Modbus 요청에 따라 정상 및 예외 응답을 제대로 생성하는지 검증 (`modbus_pdu_self_test()`, §4.5·§2 `modbus_pdu_selftest.c` 참고). §4.5의 8개 함수 코드 성공 경로(쓰기 4종은 쓰기 직후 같은 주소를 읽어 `coils[]`/`holding_registers[]`에 실제로 반영됐는지까지 확인), 3가지 예외 코드(Illegal Function/Data Address/Data Value), 그리고 경계 조건(테이블 크기 128 경계, 프로토콜 quantity 상한, 요청 길이 부족, 다중 쓰기 `byte_count` 불일치)까지 총 24개 케이스를 덮는다.
+- **`modbus_build_response()` 체크**: Modbus 요청에 따라 정상 및 예외 응답을 제대로 생성하는지 검증. 테스트 케이스는 [`modbus_pdu_selftest.c`](../modbus/modbus_pdu_selftest.c)의 `modbus_pdu_self_test()`에 있고, [4.5](#45-modbusmodbus_pduh)의 8개 함수 코드 성공 경로(쓰기 4종은 쓰기 직후 같은 주소를 읽어 `coils[]`/`holding_registers[]`에 실제로 반영됐는지까지 확인), 3가지 예외 코드(Illegal Function/Data Address/Data Value), 그리고 경계 조건(테이블 크기 128 경계, 프로토콜 quantity 상한, 요청 길이 부족, 다중 쓰기 `byte_count` 불일치)까지 총 24개 케이스를 덮는다.
 
 실행: `secure_demo` 실행 후 `3` 입력. 기대 출력:
 
@@ -622,9 +622,9 @@ Self-test: ALL PASS
 포트를 설정하지 않은 상태에서:
 
 1. 마스터로 `2`(키 초기화) → `4`(환경 설정, 원하는 함수 코드/주소/수량 입력) → `5`(실행) — `sent_frame.bin`에 씀.
-2. 새 프로세스(또는 `1`로 모드 전환)에서 `2` → `5`(실행) — `sent_frame.bin`을 읽어 검증/복호화. `Recovered PDU`가 §4.5 표대로 나오는지 확인.
+2. 새 프로세스(또는 `1`로 모드 전환)에서 `2` → `5`(실행) — `sent_frame.bin`을 읽어 검증/복호화. `Recovered PDU`가 [4.5](#45-modbusmodbus_pduh) 표대로 나오는지 확인.
 
-**한계**: 포트가 없으면(`sp == NULL`) 슬레이브가 응답을 만들지 않으므로, 이 방법은 요청 방향(`DIR_MASTER_TO_SLAVE`)의 PDU 인코딩만 검증한다. 응답 생성(`modbus_build_response()`)은 이 방법으로 닿지 않으므로 §6.1의 단위 테스트로 검증한다.
+**한계**: 포트가 없으면(`sp == NULL`) 슬레이브가 응답을 만들지 않으므로, 이 방법은 요청 방향(`DIR_MASTER_TO_SLAVE`)의 PDU 인코딩만 검증한다. 응답 생성(`modbus_build_response()`)은 이 방법으로 닿지 않으므로 [6.1](#61-단위-테스트-secure_demo-옵션-3-do_self_test)의 단위 테스트로 검증한다.
 
 ### 6.3 실제 장비(Pi) 검증 절차
 
@@ -675,8 +675,8 @@ make clean && make
 
 - [ ] 단위 테스트(옵션 3) 여러 번 연속 실행 시 매번 `ALL PASS`
 - [ ] 슬레이브 주소를 프레임과 다르게 설정하면 `Frame addressed to slave X, not us (configured as Y) -- ignoring`로 무시됨
-- [ ] §4.5의 8개 함수 코드 모두 `환경 설정` → `실행`으로 요청 PDU가 표대로 만들어짐 (§6.2)
-- [ ] Pi에서 위 항목들을 다시 실행해도 동일하게 PASS (§6.3)
+- [ ] [4.5](#45-modbusmodbus_pduh)의 8개 함수 코드 모두 `환경 설정` → `실행`으로 요청 PDU가 표대로 만들어짐 ([6.2](#62-파일-왕복-테스트-하드웨어-불필요))
+- [ ] Pi에서 위 항목들을 다시 실행해도 동일하게 PASS ([6.3](#63-실제-장비pi-검증-절차))
 
 ---
 

@@ -22,10 +22,12 @@ demo/      실행 데모
 ```
 
 - `addr`: 평문으로 한 번 더 앞에 붙음 - 복호화 전에 프레임을 라우팅해야 하므로 필요.
-- `ciphertext`: Modbus ADU(주소+PDU+CRC16) 전체를 LEA-CTR로 암호화한 암호문. CTR 카운터 자체는 전송되지 않고 송수신측 양쪽이 `keymgmt/ctr_state.h`로 각자 추적.
+- `ciphertext`: MODBUS ADU(주소+PDU+CRC16) 전체를 LEA-CTR로 암호화한 암호문. CTR 카운터 자체는 전송되지 않고 송수신측 양쪽이 `keymgmt/ctr_state.h`로 각자 추적.
 - `hmac`: `addr || ciphertext`에 대한 HMAC-LSH256 (32바이트).
 
 ## 소스코드 구성
+
+자세한 API/인터페이스 문서는 `docs/LEA-CTR 암호화와 LSH-HMAC 해시를 통한 MODBUS 프레임 종단간 암호화 프로그램 사용 매뉴얼.pdf` 참고.
 
 ### crypto/ (LEA, LSH 원본 및 참조 함수)
 
@@ -55,17 +57,17 @@ demo/      실행 데모
 
 | 파일명 | 내용 |
 | --- | --- |
-| `modbus_pdu.h`/`modbus_pdu.c` | 함수 코드 8종의 요청/응답 PDU 조립, 데모용 코일/레지스터 데이터 모델, Modbus 예외 응답 |
-| `modbus_pdu_self_test.h`/`modbus_pdu_self_test.c` | 요청 PDU 기반 응답(예외 응답) PDU 정상 생성 여부 테스트 |
+| `modbus_pdu.h`/`modbus_pdu.c` | 함수 코드 8종의 요청/응답 PDU 조립, 데모용 코일/레지스터 데이터 모델, MODBUS 예외 응답 |
+| `modbus_pdu_selftest.h`/`modbus_pdu_selftest.c` | 요청 PDU 기반 응답(예외 응답) PDU 정상 생성 여부 테스트 |
 
 ### demo/ (실행 가능 데모, 공용 유틸리티)
 
 | 파일명 | 내용 |
 | --- | --- |
-| `main.c` | 프로토타입(`secure_demo`) -- 마스터/슬레이브 모드, 키 초기화, 셀프 테스트, 환경 설정, 실행 |
-| `secure_send_demo.c` | 프레임 송신 데모(`secure_send_demo`) -- 1~123개의 레지스터로 프레임 크기를 달리하여 프레이밍 스트레스 테스트 |
-| `secure_recv_demo.c` | 프레임 수신 데모(`secure_recv_demo`) -- 실제 하드웨어로 왕복 검증 |
-| `serial_port.h`/`serial_port.c` | COM/tty 포트 열기/읽기/쓰기, Modbus T3.5 유휴 간격 계산(`modbus_t35_us`) |
+| `main.c` | 프로토타입(`secure_demo`) - 마스터/슬레이브 모드, 키 초기화, 셀프 테스트, 환경 설정, 실행 |
+| `secure_send_demo.c` | 프레임 송신 데모(`secure_send_demo`) - 1~123개의 레지스터로 프레임 크기를 달리하여 프레이밍 스트레스 테스트 |
+| `secure_recv_demo.c` | 프레임 수신 데모(`secure_recv_demo`) - 실제 하드웨어로 왕복 검증 |
+| `serial_port.h`/`serial_port.c` | COM/tty 포트 열기/읽기/쓰기, MODBUS T3.5 유휴 간격 계산(`modbus_t35_us`) |
 | `key_paths.h`/`key_paths.c` | 실행 파일 상대 경로 계산, `keys.txt` 탐색 |
 | `demo_log.h`/`demo_log.c` | 파일 로깅 유틸리티 |
 | `rs485_probe.c` | 커널 RS-485 드라이버 지원 여부 확인용 |
